@@ -1,4 +1,4 @@
-import { AVATAR_OPTIONS, CHAT_LIMIT, CHAT_MS, CLOTH, DEFAULT_LOOK, JUNK, LINES, SCARVES, SPAWN, STOCK, START_MONEY, chatText, marketSession, niceName, normalizeLook } from './catalog.mjs';
+import { AVATAR_OPTIONS, CHAT_FEED_MS, CHAT_LIMIT, CHAT_MS, CLOTH, DEFAULT_LOOK, JUNK, LINES, SCARVES, SPAWN, STOCK, START_MONEY, chatText, marketSession, niceName, normalizeLook } from './catalog.mjs';
 import { MARKET_API } from './config.mjs';
 import { createWorld, drawAvatarPreview } from './world.mjs';
 
@@ -48,6 +48,7 @@ let muted=true, audioCtx, toastTimer, acting=false;
 let profileTab='avatar', profileFeedback='';
 let nearby='', shop='', shopSignature='', inventory, feed, retryFeedAt=0, transitionRequested=0;
 let lastLine=0, filter='all', sendingChat=false;
+const seenChat=new Set();
 const products=[...CLOTH,...JUNK];
 const partLabels={hat:'모자',coat:'옷',bag:'가방',scarf:'목에 두른 스카프'};
 const openingTime=new Intl.DateTimeFormat('ko-KR',{timeZone:'Asia/Seoul',month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit',hourCycle:'h23'});
@@ -115,6 +116,7 @@ function setModel(data){
   model=data;
   timeOffset=data.now-Date.now();
   world?.setPeers(data.peers,data.player.id,data.player.look);
+  showChat(data.speech);
   for(const peer of data.peers)showChat(peer.speech);
   setInventory(data);
   render();
@@ -122,15 +124,30 @@ function setModel(data){
 function setInventory(data){
   if(!data.stock||typeof data.open!=='boolean'||!Number.isSafeInteger(data.revision))return;
   if(inventory&&data.revision<=inventory.revision)return;
-  inventory={stock:data.stock,revision:data.revision,next:data.next,open:data.open,closes:data.closes};
+  inventory={stock:data.stock,revision:data.revision,next:data.next,open:data.open,closes:data.closes,testing:Boolean(data.testing)};
   world?.setStock(inventory.stock);
   tick();
   renderShop();
 }
 function showChat(speech){
   if(!speech||typeof speech.text!=='string')return;
-  const remaining=Math.min(CHAT_MS,speech.expiresAt-Date.now()-timeOffset);
+  const now=Date.now()+timeOffset;
+  const remaining=Math.min(CHAT_MS,speech.expiresAt-now);
   if(remaining>0)world?.showChat(speech,remaining);
+  const duration=Math.min(CHAT_FEED_MS,speech.sentAt+CHAT_FEED_MS-now);
+  const key=speech.playerId+':'+speech.sentAt;
+  if(!(duration>0)||seenChat.has(key))return;
+  seenChat.add(key);
+  const log=$('chat-feed');
+  const row=document.createElement('div');
+  const name=document.createElement('b');
+  name.textContent=speech.name||model?.peers.find(peer=>peer.id===speech.playerId)?.name||'손님';
+  row.classList.toggle('own-message',speech.playerId===model?.player.id);
+  row.append(name,document.createTextNode(speech.text));
+  log.append(row);
+  if(log.children.length>3)log.firstElementChild.remove();
+  setTimeout(()=>row.remove(),duration);
+  setTimeout(()=>seenChat.delete(key),duration+1000);
 }
 function connectFeed(){
   if(feed||document.hidden||Date.now()<retryFeedAt||!endpoint.startsWith('https://'))return;
@@ -167,7 +184,7 @@ function tick(){
   const seconds=Math.ceil(ms/1000);
   const hours=Math.floor(seconds/3600);
   const minutes=String(Math.floor(seconds/60)%60).padStart(2,'0');
-  $('clock-label').textContent=inventory.open?'장 마감':'다음 장';
+  $('clock-label').textContent=inventory.testing?'테스트 마감':inventory.open?'장 마감':'다음 장';
   $('countdown').textContent=(hours?hours+':':'')+minutes+':'+String(seconds%60).padStart(2,'0');
   $('countdown').title=openingTime.format(deadline)+' (한국 시간)';
 }
@@ -232,6 +249,7 @@ function renderShop(){
   const body=$('shop-items');
   $('shop-summary').hidden=shop==='junk'||!inventory?.open;
   $('shop-filters').hidden=shop==='junk'||!inventory?.open;
+  $('sale-label').textContent=inventory?.testing?'테스트 장 · 선착순 판매':'선착순 판매';
   if(shop==='junk'){
     body.innerHTML='<div class="shop-closed"><span class="closed-tag">OPENING SOON</span><strong>오픈 준비 중</strong><p>진열이 끝나면 잡화점 문을 열어요.</p></div>';
     return;

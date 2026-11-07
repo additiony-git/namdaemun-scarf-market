@@ -5,7 +5,10 @@ export class MarketRoom extends DurableObject {
   constructor(ctx, env) {
     super(ctx, env);
     const storage = ctx.storage;
-    this.market = new Market((sql,...params) => storage.sql.exec(sql,...params).toArray(), fn => storage.transactionSync(fn));
+    const from = Date.parse(env.TEST_MARKET_FROM);
+    const until = Date.parse(env.TEST_MARKET_UNTIL);
+    const testWindow = Number.isFinite(from) && Number.isFinite(until) && until > from ? { from, until } : undefined;
+    this.market = new Market((sql,...params) => storage.sql.exec(sql,...params).toArray(), fn => storage.transactionSync(fn), testWindow);
   }
   fetch(request) {
     const origin = request.headers.get('Origin');
@@ -20,10 +23,10 @@ export class MarketRoom extends DurableObject {
       return new Response(null, { status: 101, webSocket: client });
     }
     return endpoint(this.market, request, this.env.PAGES_ORIGIN, request.headers.get('CF-Connecting-IP') || 'unknown',
-      (action, { stock, goods, revision, next, open, closes, speech }) => {
+      (action, { stock, goods, revision, next, open, closes, speech, testing }) => {
         const update = JSON.stringify(action === 'chat'
           ? { type: 'chat', speech }
-          : { stock, goods, revision, next, open, closes });
+          : { stock, goods, revision, next, open, closes, testing });
         for (const socket of this.ctx.getWebSockets()) {
           try { socket.send(update); } catch { /* the client has disconnected */ }
         }

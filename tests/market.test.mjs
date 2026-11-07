@@ -2,14 +2,14 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { DatabaseSync } from 'node:sqlite';
 import { Market, endpoint } from '../server/market.mjs';
-import { CHAT_MS, DEFAULT_LOOK, MARKET_DURATION, STOCK, START_MONEY, marketSession } from '../game/catalog.mjs';
+import { CHAT_FEED_MS, CHAT_MS, DEFAULT_LOOK, MARKET_DURATION, STOCK, START_MONEY, marketSession } from '../game/catalog.mjs';
 
 const midnight=Date.parse('2026-11-08T00:00:00+09:00');
 const start=marketSession(midnight).next;
 
 function setup() {
   const db=new DatabaseSync(':memory:');
-  function create() {
+  function create(testWindow) {
     return new Market((sql,...params)=>{
       const stmt=db.prepare(sql);
       if(/^SELECT\b|\bRETURNING\b/i.test(sql))return stmt.all(...params);
@@ -17,7 +17,7 @@ function setup() {
     }, fn=>{
       db.exec('BEGIN IMMEDIATE');
       try {const value=fn();db.exec('COMMIT');return value;} catch(e){db.exec('ROLLBACK');throw e;}
-    });
+    },testWindow);
   }
   return {create, db, close:()=>db.close()};
 }
@@ -131,11 +131,14 @@ test('chat is authenticated, transient, limited and visible to another guest', t
   const sent=market.action({action:'chat',token:guest.token,text:'  안녕\n <b>골목</b>  '},midnight+100);
   assert.equal(sent.speech.text,'안녕 <b>골목</b>');
   assert.equal(sent.speech.playerId,guest.player.id);
+  assert.equal(sent.speech.name,guest.player.name);
   assert.equal(sent.speech.expiresAt,midnight+100+CHAT_MS);
   assert.equal(market.action({action:'chat',token:guest.token,text:'안녕'},midnight+101).status,429);
   const sync=now=>market.action({action:'sync',token:neighbor.token},now);
   assert.deepEqual(sync(midnight+500).peers[0].speech,sent.speech);
-  assert.equal(sync(sent.speech.expiresAt).peers[0].speech,undefined);
+  assert.deepEqual(sync(sent.speech.expiresAt).peers[0].speech,sent.speech);
+  assert.deepEqual(market.action({action:'sync',token:guest.token},midnight+8000).speech,sent.speech);
+  assert.equal(sync(sent.speech.sentAt+CHAT_FEED_MS).peers[0].speech,undefined);
 });
 
 test('profile saves purchased clothing and shares the look without sharing the basket', t=>{
@@ -160,4 +163,40 @@ test('profile saves purchased clothing and shares the look without sharing the b
   const restored=data.create().action({action:'sync',token:guest.token},start+800);
   assert.deepEqual(restored.player.look,look);
   assert.equal(restored.player.name,'시장 단골');
+});
+
+test('the test window accepts purchases and returns to the regular schedule at expiry', t=>{
+  const data=setup();t.after(data.close);
+  const from=midnight+5*60_000,until=from+2*60_000;
+  const market=data.create({from,until});
+  const guest=market.action({action:'join'},from-1);
+  assert.equal(guest.open,false);
+  const opened=market.action({action:'sync',token:guest.token},from);
+  assert.equal(opened.open,true);
+  assert.equal(opened.closes,until);
+  assert.ok(opened.revision>guest.revision);
+  const bought=market.action({action:'buy',token:guest.token,item:'scarf'},from+1);
+  assert.equal(bought.stock.scarf,STOCK.scarf-1);
+  const closed=market.action({action:'sync',token:guest.token},until);
+  assert.equal(closed.open,false);
+  assert.equal(closed.next,start);
+  assert.ok(closed.revision>bought.revision);
+  assert.equal(closed.basket[0].item,'scarf');
+  const regular=market.action({action:'sync',token:guest.token},start);
+  assert.equal(regular.stock.scarf,STOCK.scarf);
+  assert.ok(regular.revision>closed.revision);
+});
+
+test('a regular market can close after a test ends during its opening', t=>{
+  const data=setup();t.after(data.close);
+  const from=start-90_000,until=start+90_000;
+  const market=data.create({from,until});
+  const guest=market.action({action:'join'},from);
+  const bought=market.action({action:'buy',token:guest.token,item:'scarf'},until+1);
+  const closed=market.inventory(start+MARKET_DURATION);
+  assert.equal(guest.testing,true);
+  assert.equal(bought.testing,undefined);
+  assert.ok(bought.revision>guest.revision);
+  assert.ok(closed.revision>bought.revision);
+  assert.equal(closed.open,false);
 });

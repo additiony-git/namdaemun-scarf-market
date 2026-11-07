@@ -48,13 +48,14 @@
         <div class="stock-status"><i data-icon="clock"></i><span id="clock-label">다음 장</span><strong id="countdown">--:--</strong></div>
       </div>
     </div>
+    <div class="chat-feed" id="chat-feed" role="log" aria-label="같은 골목의 최근 채팅"></div>
 
     <section id="shop" class="shop" aria-labelledby="shop-title" hidden>
       <div class="shop-head">
         <div><div class="kicker"><span></span> <span id="shop-kicker"></span></div><h2 id="shop-title"></h2></div>
         <button class="glass icon-btn" id="close-shop" aria-label="상품 목록 닫기"><i data-icon="close"></i></button>
       </div>
-      <div class="shop-summary" id="shop-summary"><span class="shop-live"><span></span> 선착순 판매</span><b id="shop-stock">–</b></div>
+      <div class="shop-summary" id="shop-summary"><span class="shop-live"><span></span><b id="sale-label">선착순 판매</b></span><b id="shop-stock">–</b></div>
       <div class="shop-filters" id="shop-filters" aria-label="상품 종류" hidden>
         <button type="button" data-filter="all" aria-pressed="true">전체</button>
         <button type="button" data-filter="scarf" aria-pressed="false">스카프</button>

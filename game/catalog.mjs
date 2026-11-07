@@ -1,5 +1,6 @@
 export const START_MONEY = 2000;
 export const CHAT_MS = 7_000;
+export const CHAT_FEED_MS = 20_000;
 export const CHAT_LIMIT = 80;
 export const SPAWN = { x: -0.9, z: 3.9 };
 export const MAP = { minX: -5.65, maxX: 5.55, minZ: -1.85, maxZ: 7.3 };

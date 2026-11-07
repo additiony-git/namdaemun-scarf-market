@@ -1,16 +1,18 @@
-import { CHAT_LIMIT, CHAT_MS, CLOTH, JUNK, MAP, SPAWN, START_MONEY, STOCK, chatText, fit, marketSession, niceName, normalizeLook } from '../game/catalog.mjs';
+import { CHAT_FEED_MS, CHAT_LIMIT, CHAT_MS, CLOTH, JUNK, MAP, SPAWN, START_MONEY, STOCK, chatText, fit, marketSession, niceName, normalizeLook } from '../game/catalog.mjs';
 
 const defaultName = '새내기 손님';
 const presenceMs = 30_000;
 const tradeMs = 350;
 const chatCooldown = 1800;
+const minute = 60_000;
 const closedStock = Object.fromEntries(CLOTH.map(item => [item.id, 0]));
 const problem = (error, status = 400) => ({ error, status });
 const newToken = () => Array.from(crypto.getRandomValues(new Uint8Array(24)), n => n.toString(16).padStart(2, '0')).join('');
 export class Market {
-  constructor(query, transaction) {
+  constructor(query, transaction, testWindow) {
     this.query = query;
     this.transaction = transaction;
+    this.testWindow = testWindow;
     this.people = new Map();
     this.joins = new Map();
     query('CREATE TABLE IF NOT EXISTS players (id TEXT PRIMARY KEY, token TEXT UNIQUE NOT NULL, name TEXT NOT NULL, cash INTEGER NOT NULL, sold INTEGER NOT NULL DEFAULT 0, collected INTEGER NOT NULL DEFAULT 0, reached INTEGER NOT NULL DEFAULT 0, traded INTEGER NOT NULL DEFAULT 0)');
@@ -25,16 +27,31 @@ export class Market {
     for (const [id, p] of this.people) if (now - p.seen > presenceMs) this.people.delete(id);
     for (const [ip, p] of this.joins) if (now - p.at > 60_000) this.joins.delete(ip);
   }
-  inventory(now, session = marketSession(now)) {
+  session(now) {
+    const regular = marketSession(now);
+    const window = this.testWindow;
+    if (window && now >= window.from && now < window.until) {
+      return { round: Math.floor(window.from / minute), open: true, closes: window.until, next: marketSession(window.until).next, testing: true };
+    }
+    return regular;
+  }
+  inventory(now, session = this.session(now)) {
     const { round, open } = session;
-    if (!open) return { ...session, stock: closedStock, goods: {}, revision: round * 1000 + 500 };
+    const phaseMinute = open ? round : Math.floor(session.closes / minute);
+    const scheduledRevision = phaseMinute * 1000 + (session.testing ? 700 : open ? 0 : 500);
+    // Keep snapshots ordered when the test ends between regular sessions.
+    const expired = this.testWindow && now >= this.testWindow.until;
+    const expiryMinute = expired ? Math.floor(this.testWindow.until / minute) : 0;
+    const shortWindow = expired && Math.floor(this.testWindow.from / minute) === expiryMinute;
+    const revision = expired ? Math.max(scheduledRevision, expiryMinute * 1000 + (shortWindow ? 800 : 0)) : scheduledRevision;
+    if (!open) return { ...session, stock: closedStock, goods: {}, revision };
     const stock = { ...STOCK };
     let used = 0;
     for (const { item, qty } of this.query('SELECT item, qty FROM cloth_sales WHERE round = ?', round)) {
       stock[item] -= qty;
       used += qty;
     }
-    return { ...session, stock, goods: {}, revision: round * 1000 + used };
+    return { ...session, stock, goods: {}, revision: revision + used };
   }
   action(body, now = Date.now(), ip = 'local') {
     const { action, token, pos } = body ?? {};
@@ -52,7 +69,7 @@ export class Market {
         this.query('INSERT INTO players (id, token, name, cash) VALUES (?, ?, ?, ?)', player.id, issued, player.name, START_MONEY);
       }
       if (!player) return problem('장터에 다시 입장해 주세요.', 401);
-      const session = marketSession(now);
+      const session = this.session(now);
       const { round, open } = session;
       const allowance = this.get('SELECT round FROM allowances WHERE player = ?', player.id);
       if (open && allowance?.round !== round) {
@@ -111,7 +128,7 @@ export class Market {
         const text = chatText(body.text);
         if (!text || [...text].length > CHAT_LIMIT) return problem('채팅은 1~80자로 입력해 주세요.');
         if (speech && now - speech.sentAt < chatCooldown) return problem('잠시 후 다시 말해 주세요.', 429);
-        speech = { playerId: player.id, text, sentAt: now, expiresAt: now + CHAT_MS };
+        speech = { playerId: player.id, name: player.name, text, sentAt: now, expiresAt: now + CHAT_MS };
       } else if (action !== 'join' && action !== 'sync') {
         return problem('알 수 없는 거래입니다.');
       }
@@ -119,12 +136,12 @@ export class Market {
       const ranking = this.query('SELECT id, name, collected FROM players WHERE collected > 0 ORDER BY collected DESC, reached ASC, id ASC LIMIT 30');
       const myRank = player.collected ? this.get('SELECT COUNT(*) + 1 AS rank FROM players WHERE collected > ? OR (collected = ? AND reached < ?)', player.collected, player.collected, player.reached).rank : null;
       return {
-        token: issued, event, speech: action === 'chat' ? speech : undefined, now, ...this.inventory(now, session),
+        token: issued, event, speech: speech?.sentAt + CHAT_FEED_MS > now ? speech : undefined, now, ...this.inventory(now, session),
         player: { id: player.id, name: player.name, cash: player.cash, sold: player.sold, collected: player.collected, rank: myRank, look },
         basket: this.query('SELECT item, qty, updated FROM basket WHERE player = ? ORDER BY updated DESC, item', player.id),
         ranking, online: this.people.size,
         peers: [...this.people.values()].filter(p => p.id !== player.id).slice(0, 35).map(({ id, name, x, z, speech, look }) =>
-          ({ id, name, x, z, look, speech: speech?.expiresAt > now ? speech : undefined })),
+          ({ id, name, x, z, look, speech: speech?.sentAt + CHAT_FEED_MS > now ? speech : undefined })),
       };
     });
   }
