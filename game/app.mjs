@@ -48,6 +48,7 @@ let muted=true, audioCtx, toastTimer, acting=false;
 let profileTab='avatar', profileFeedback='';
 let nearby='', shop='', shopSignature='', inventory, feed, retryFeedAt=0, transitionRequested=0;
 let soldoutPreview=false, soldoutPreviewTimer;
+let soldoutEffectFrame, soldoutEffectTimer;
 let lastLine=0, filter='all', sendingChat=false;
 const seenChat=new Set();
 const products=[...MARKET_ITEMS,...JUNK];
@@ -140,19 +141,30 @@ function nextSaleAt(snapshot=inventory){
   if(snapshot.testing&&marketSession(snapshot.closes).open)return snapshot.closes;
   return snapshot.next;
 }
+function clearSoldoutEffect(){
+  cancelAnimationFrame(soldoutEffectFrame);
+  clearTimeout(soldoutEffectTimer);
+  $('soldout-scene').hidden=true;
+  $('vendor-speech').classList.remove('soldout-pop');
+}
 function playSoldoutEffect(){
-  const bubble=$('vendor-speech');
-  bubble.classList.remove('soldout-pop');
-  requestAnimationFrame(()=>{
-    if(displayedAvailability()==='soldout')bubble.classList.add('soldout-pop');
-  });
+  clearSoldoutEffect();
   const next=openingTime.format(nextSaleAt());
+  const scene=$('soldout-scene');
+  $('soldout-scene-label').textContent=soldoutPreview?'테스트 미리보기':'남대문 스카프 매대';
+  $('soldout-scene-next').textContent='다음 장 · '+next;
+  soldoutEffectFrame=requestAnimationFrame(()=>{
+    if(displayedAvailability()!=='soldout')return;
+    scene.hidden=false;
+    $('vendor-speech').classList.add('soldout-pop');
+    soldoutEffectTimer=setTimeout(()=>{scene.hidden=true;},2500);
+  });
   toast((soldoutPreview?'완판 효과 미리보기':'이번 장 완판!')+' · '+next+'에 다시 와요.');
 }
 function setSoldoutPreview(active){
   clearTimeout(soldoutPreviewTimer);
   soldoutPreview=active;
-  if(!active)$('vendor-speech').classList.remove('soldout-pop');
+  if(!active)clearSoldoutEffect();
   world?.setStock(active?closedStock:inventory.stock);
   line();
   tick();
@@ -171,6 +183,7 @@ function setInventory(data){
   const current=marketAvailability();
   const becameSoldout=previous==='selling'&&current==='soldout';
   if(soldoutPreview&&(!inventory.testing||becameSoldout))setSoldoutPreview(false);
+  else if(previous==='soldout'&&current!=='soldout'&&!soldoutPreview)clearSoldoutEffect();
   world?.setStock(soldoutPreview?closedStock:inventory.stock);
   if(previous!==current||previousNext!==nextSaleAt())line();
   if(becameSoldout)playSoldoutEffect();
