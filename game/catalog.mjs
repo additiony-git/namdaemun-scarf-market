@@ -26,34 +26,49 @@ export const MARKET_ITEMS = [...CLOTH, ...RARE_SCARVES];
 export const STOCK = Object.fromEntries(MARKET_ITEMS.map(item => [item.id, item.rare ? 0 : item.count]));
 export const AVATAR_OPTIONS = {
   character: {
-    classic: { name: '기본 캐릭터' },
-    female: { name: '여자 캐릭터' },
+    classic: { name: '남성 캐릭터 · 기본', wardrobe: '남성 전용 소품' },
+    female: { name: '여성 캐릭터', wardrobe: '여성 전용 소품' },
   },
   hat: {
+    newsboy: { name: '밤색 헌팅캡', color: '765546', character: 'classic' },
+    blossom: { name: '살구꽃 머리핀', color: 'e8a189', character: 'female' },
+    ribbon: { name: '자두색 머리 리본', color: '99667f', character: 'female' },
     cap: { name: '쪽빛 볼캡', color: '546374' },
     knit: { name: '벽돌색 비니', color: '9c4840' },
     bucket: { name: '모래색 버킷햇', color: 'bc975f' },
-    none: { name: '모자 없음' },
+    none: { name: '머리 소품 없음' },
   },
   coat: {
+    marketVest: { name: '호박빛 작업 조끼', color: 'b8874c', character: 'classic' },
+    fieldJacket: { name: '잣빛 필드 재킷', color: '7b8165', character: 'classic' },
+    roseCardigan: { name: '말린 장미 가디건', color: 'b57777', character: 'female' },
+    plumCoat: { name: '자두빛 칼라 코트', color: '826780', character: 'female' },
     teal: { name: '비취색 재킷', color: '638687' },
     brick: { name: '벽돌색 재킷', color: 'b36451' },
     navy: { name: '밤하늘색 재킷', color: '5d648f' },
     mustard: { name: '겨자색 재킷', color: 'c29e4e' },
   },
   bag: {
+    satchel: { name: '밤색 캔버스 메신저백', color: '9c7555', character: 'classic' },
+    wovenBasket: { name: '밀짚 꽃바구니', color: 'c39761', character: 'female' },
+    plumPouch: { name: '자두빛 미니 손가방', color: '925d76', character: 'female' },
     backpack: { name: '가죽 배낭', color: 'deb268' },
     tote: { name: '쌀빛 장바구니', color: 'e3c99d' },
     crossbody: { name: '밤색 크로스백', color: '8f635a' },
     none: { name: '가방 없음' },
   },
 };
-export const DEFAULT_LOOK = { character: 'classic', hat: 'cap', coat: 'teal', bag: 'backpack', scarf: 'classic' };
+// Keep the original character ID so existing profiles still load as the male visitor.
+export const DEFAULT_LOOK = { character: 'classic', hat: 'newsboy', coat: 'fieldJacket', bag: 'satchel', scarf: 'classic' };
+const FEMALE_LOOK = { character: 'female', hat: 'blossom', coat: 'roseCardigan', bag: 'wovenBasket', scarf: 'classic' };
+export function avatarOptionsFor(part, character) {
+  return Object.entries(AVATAR_OPTIONS[part]).filter(([,option])=>!option.character||option.character===character);
+}
 export const SCARVES = MARKET_ITEMS.filter(item => item.group === 'scarf');
 export function normalizeLook(value) {
-  const look = { ...DEFAULT_LOOK };
-  for (const [part, options] of Object.entries(AVATAR_OPTIONS)) {
-    if (typeof value?.[part] === 'string' && Object.hasOwn(options, value[part])) look[part] = value[part];
+  const look = { ...(value?.character === 'female' ? FEMALE_LOOK : DEFAULT_LOOK) };
+  for (const part of ['hat','coat','bag']) {
+    if (avatarOptionsFor(part,look.character).some(([id])=>id===value?.[part])) look[part] = value[part];
   }
   if (value?.scarf === 'none' || SCARVES.some(item => item.id === value?.scarf)) look.scarf = value.scarf;
   return look;

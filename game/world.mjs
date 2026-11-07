@@ -59,21 +59,29 @@ class Mesh {
 function character(m, x,z,angle, coat, type, phase=0, look=DEFAULT_LOOK) {
   const t=T(x,0,z,angle), walk=Math.sin(phase)*.16, skin=type===2?'c98a69':'dda074';
   const female=type===0&&look.character==='female';
-  const arm=female?.255:.28;
+  const male=type===0&&!female, arm=female?.255:male?.297:.28;
+  const pants=female?'51434c':'3f3940';
   m.disc(x,.012,z,.38,.25,'60463e');
-  m.box(t,-.13,0,walk,.17,.34,.19,'3f3940');m.box(t,.13,0,-walk,.17,.34,.19,'3f3940');
+  m.box(t,-.13,0,walk,.17,.34,.19,pants);m.box(t,.13,0,-walk,.17,.34,.19,pants);
   m.box(t,-.13,0,.045+walk,.2,.09,.26,'27282e');m.box(t,.13,0,.045-walk,.2,.09,.26,'27282e');
-  m.box(t,0,.31,0,female?.425:.47,.48,.29,coat);
+  m.box(t,0,.31,0,female?.425:male?.495:.47,.48,.29,coat);
   m.box(t,-arm,.39,-walk,.13,.37,.16,coat);m.box(t,arm,.39,walk,.13,.37,.16,coat);
   m.box(t,-arm,.32,-walk,.115,.09,.14,skin);m.box(t,arm,.32,walk,.115,.09,.14,skin);
-  m.box(t,0,.76,0,.335,.34,.295,skin);m.box(t,0,.97,-.10,.35,.12,.125,'44302a');
+  m.box(t,0,.76,0,male?.36:.335,.34,.295,skin);m.box(t,0,.97,-.10,.35,.12,.125,'44302a');
   m.box(t,-.074,.902,.15,.033,.026,.014,'392927');m.box(t,.074,.902,.15,.033,.026,.014,'392927');
+  if(male){
+    for(const x of [-.075,.075])m.box(t,x,.954,.15,.064,.023,.014,'4b3328');
+    m.box(t,0,.825,.15,.07,.016,.012,'a56551');
+    for(const x of [-.177,.177])m.box(t,x,.955,-.044,.032,.094,.1,'44302a');
+  }
   if(female){
     m.box(t,0,.87,-.115,.366,.235,.12,'49332d');
     m.box(t,-.156,.83,-.015,.064,.22,.20,'553932');
     m.box(t,.156,.86,-.044,.065,.18,.16,'553932');
     m.box(t,.07,.694,-.225,.125,.263,.135,'49332d');
     m.box(t,.07,.901,-.214,.139,.042,.142,'be8d69');
+    m.box(t,-.062,.99,.095,.212,.055,.125,'553932');
+    m.box(t,.025,.831,.15,.056,.018,.012,'a75e54');
   }
   if (type===0) {
     dressVisitor(m,t,look,walk);
@@ -86,8 +94,22 @@ function character(m, x,z,angle, coat, type, phase=0, look=DEFAULT_LOOK) {
 
 function dressVisitor(mesh, transform, look, walk) {
   const hat=AVATAR_OPTIONS.hat[look.hat];
-  if(look.hat==='none') {
+  if(['none','blossom','ribbon'].includes(look.hat)) {
     mesh.box(transform,0,1.058,-.025,.35,.067,.31,'44302a');
+    if(look.hat==='blossom'){
+      for(const [x,y] of [[.109,1.028],[.159,1.031],[.135,1.054],[.135,1.007]])mesh.gem(transform,x,y,.155,.033,hat.color);
+      mesh.gem(transform,.135,1.031,.177,.019,'f5d18d');
+    }
+    if(look.hat==='ribbon'){
+      mesh.box(transform,.144,1.012,-.02,.094,.052,.238,hat.color);
+      for(const z of [-.108,.082])mesh.gem(transform,.181,1.053,z,.063,hat.color);
+      mesh.box(transform,.18,1.01,-.01,.076,.075,.05,'d0919b');
+    }
+  } else if(look.hat==='newsboy') {
+    mesh.box(transform,0,1.018,0,.4,.073,.365,hat.color);
+    mesh.box(transform,0,1.088,-.019,.34,.055,.295,'95725a');
+    mesh.box(transform,0,1.012,.145,.35,.037,.238,'604439');
+    mesh.box(transform,0,1.142,-.02,.042,.012,.045,'604439');
   } else {
     mesh.box(transform,0,1.025,0,.39,look.hat==='knit'?.158:.135,.335,hat.color);
     if(look.hat==='cap')mesh.box(transform,0,1.019,.10,.425,.045,.36,'647a87');
@@ -96,6 +118,17 @@ function dressVisitor(mesh, transform, look, walk) {
       mesh.box(transform,0,1.027,0,.407,.054,.351,'713733');
       mesh.gem(transform,0,1.205,0,.054,'ca6d55');
     }
+  }
+  if(['marketVest','fieldJacket','roseCardigan','plumCoat'].includes(look.coat)){
+    const trim={marketVest:'785238',fieldJacket:'505d4c',roseCardigan:'e1a995',plumCoat:'c3a0a9'}[look.coat];
+    mesh.box(transform,0,.324,.147,.035,.417,.022,trim);
+    for(const x of [-.145,.145]){
+      mesh.box(transform,x,.408,.154,.107,.076,.024,trim);
+      mesh.box(transform,x,.708,.152,.114,.052,.035,trim);
+    }
+    for(const y of [.388,.447,.507,.567])mesh.box(transform,0,y,.166,.029,.022,.021,'deb477');
+    if(look.coat==='marketVest')for(const x of [-.296,.296])mesh.box(transform,x,.395,x>0?walk:-walk,.135,.367,.165,'d8b888');
+    if(look.coat==='plumCoat')mesh.box(transform,0,.269,0,.467,.074,.308,AVATAR_OPTIONS.coat.plumCoat.color);
   }
   if(look.scarf!=='none'){
     const scarf=SCARVES.find(item=>item.id===look.scarf);
@@ -115,6 +148,21 @@ function dressVisitor(mesh, transform, look, walk) {
     mesh.segment(transform(-.17,.764,.156),transform(.22,.426,.184),.042,'593e35');
     mesh.box(transform,.222,.31,.167,.22,.176,.105,bag.color);
     mesh.box(transform,.222,.383,.228,.179,.054,.029,'bc8a69');
+  }else if(look.bag==='satchel'){
+    mesh.segment(transform(-.181,.773,.172),transform(.218,.407,.177),.048,'7a533b');
+    mesh.box(transform,.221,.28,.159,.243,.204,.16,bag.color);
+    mesh.box(transform,.221,.41,.213,.238,.064,.064,'b48b64');
+    mesh.box(transform,.221,.386,.253,.056,.048,.02,'e4ba69');
+  }else if(look.bag==='wovenBasket'||look.bag==='plumPouch'){
+    const woven=look.bag==='wovenBasket', x=.328, z=walk+.078, edge=woven?'e0bb80':'c58da1';
+    mesh.box(transform,x,.094,z,.245,.178,.184,bag.color);
+    mesh.box(transform,x,.263,z,.257,.036,.197,edge);
+    for(const side of [-1,1])mesh.box(transform,x+side*.08,.288,z,.033,.105,.04,edge);
+    mesh.box(transform,x,.38,z,.186,.033,.04,edge);
+    if(woven){
+      for(const y of [.127,.17,.215])mesh.box(transform,x,y,z+.094,.226,.017,.013,'a9774e');
+      for(const [offset,color] of [[-.07,'d08b83'],[.02,'e6b95f'],[.085,'e9c7a1']])mesh.gem(transform,x+offset,.308,z+.037,.037,color);
+    }else mesh.gem(transform,x,.231,z+.104,.035,'f4c982');
   }
 }
 
@@ -123,32 +171,32 @@ export function drawAvatarPreview(canvas, appearance, turned=false) {
   if(!ctx)return;
   const look=normalizeLook(appearance);
   const mesh=new Mesh();
-  character(mesh,0,0,turned?2.58:-.36,AVATAR_OPTIONS.coat[look.coat].color,0,0,look);
-  const triangles=[];
+  character(mesh,0,0,turned?2.62:-.15,AVATAR_OPTIONS.coat[look.coat].color,0,0,look);
+  const {width,height}=canvas, image=ctx.createImageData(width,height);
+  const depth=new Float32Array(width*height).fill(-Infinity);
+  const view=norm([3.2,5.2,12]), side=norm(cross([0,1,0],view)), rise=cross(view,side);
+  const scale=height*.69;
+  const edge=(a,b,x,y)=>(b[0]-a[0])*(y-a[1])-(b[1]-a[1])*(x-a[0]);
+  // Depth per pixel keeps tiny pins, hair and overlapping clothes in front of the right faces.
   for(let i=0;i<mesh.data.length;i+=18){
     const points=[0,6,12].map(offset=>mesh.data.slice(i+offset,i+offset+3));
-    if(dot(cross(sub(points[1],points[0]),sub(points[2],points[0])),eye)<=0)continue;
-    const depth=points.reduce((sum,point)=>sum+dot(point,eye),0);
-    const color=mesh.data.slice(i+3,i+6).map(value=>Math.min(255,Math.round(value*255)));
-    triangles.push({points,depth,color});
-  }
-  ctx.clearRect(0,0,canvas.width,canvas.height);
-  const center=canvas.width/2;
-  const base=canvas.height*.86;
-  const scale=canvas.height*.68;
-  for(const {points,color} of triangles.sort((a,b)=>a.depth-b.depth)){
-    ctx.fillStyle=ctx.strokeStyle='rgb('+color.join(',')+')';
-    ctx.lineWidth=.65;
-    ctx.beginPath();
-    for(const [index,point] of points.entries()){
-      const x=center+dot(point,right)*scale,y=base-dot(point,up)*scale;
-      if(index===0)ctx.moveTo(x,y);
-      else ctx.lineTo(x,y);
+    if(dot(cross(sub(points[1],points[0]),sub(points[2],points[0])),view)<=0)continue;
+    const [a,b,c]=points.map(p=>[width/2+dot(p,side)*scale,height*.875-dot(p,rise)*scale,dot(p,view)]);
+    const area=edge(a,b,c[0],c[1]);
+    if(!area)continue;
+    const minX=Math.max(0,Math.floor(Math.min(a[0],b[0],c[0]))), maxX=Math.min(width-1,Math.ceil(Math.max(a[0],b[0],c[0])));
+    const minY=Math.max(0,Math.floor(Math.min(a[1],b[1],c[1]))), maxY=Math.min(height-1,Math.ceil(Math.max(a[1],b[1],c[1])));
+    for(let y=minY;y<=maxY;y++)for(let x=minX;x<=maxX;x++){
+      const u=edge(b,c,x+.5,y+.5)/area, v=edge(c,a,x+.5,y+.5)/area, w=1-u-v;
+      if(Math.min(u,v,w)<-1e-6)continue;
+      const z=u*a[2]+v*b[2]+w*c[2], at=y*width+x;
+      if(z<=depth[at])continue;
+      depth[at]=z;
+      for(let channel=0;channel<3;channel++)image.data[4*at+channel]=mesh.data[i+3+channel]*255;
+      image.data[4*at+3]=255;
     }
-    ctx.closePath();
-    ctx.fill();
-    ctx.stroke();
   }
+  ctx.putImageData(image,0,0);
 }
 
 function drawProducts(mesh, stock) {

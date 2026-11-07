@@ -21,7 +21,7 @@ await mkdir(assets,{recursive:true});
 await Promise.all([
   ...entries.map((file,i)=>writeFile(new URL(file,assets),sources[i])),
   writeFile(new URL('config.mjs',assets),config),
-  ...['mark.svg','vendor.svg','market-intro.webp','market-intro-portrait.webp'].map(file=>cp(new URL(file,game),new URL(file,dist))),
+  ...['mark.svg','vendor.svg','market-intro-warm.webp','market-intro-warm-portrait.webp'].map(file=>cp(new URL(file,game),new URL(file,dist))),
 ]);
 const html=(await readFile(new URL('index.html',game),'utf8'))
   .replace('./app.mjs','./'+version+'/app.mjs')

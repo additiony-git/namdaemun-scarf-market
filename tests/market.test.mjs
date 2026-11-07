@@ -168,6 +168,29 @@ test('profile saves purchased clothing and shares the look without sharing the b
   assert.equal(olderClient.player.look.character,character);
 });
 
+test('male and female visitors keep their own wardrobes and only share the active look', t=>{
+  const data=setup();t.after(data.close);
+  const market=data.create();
+  const guest=market.action({action:'join'},start);
+  const neighbor=market.action({action:'join'},start);
+  assert.equal(guest.player.look.character,'classic');
+  const female={character:'female',hat:'ribbon',coat:'plumCoat',bag:'plumPouch',scarf:'none'};
+  const male={...guest.player.look,coat:'marketVest'};
+  const save=look=>({action:'profile',token:guest.token,name:'시장 손님',look});
+  assert.equal(market.action(save({...male,hat:female.hat}),start+100).status,400);
+  assert.equal(market.action(save({...female,bag:male.bag}),start+200).status,400);
+  const changed=market.action(save(female),start+300);
+  assert.deepEqual(changed.player.outfits,{classic:guest.player.look,female});
+  const changedBack=market.action(save(male),start+400);
+  assert.deepEqual(changedBack.player.outfits,{classic:male,female});
+  const peer=market.action({action:'sync',token:neighbor.token},start+500).peers.find(p=>p.id===guest.player.id);
+  assert.deepEqual(peer.look,male);
+  assert.equal(peer.outfits,undefined);
+  const restored=data.create().action({action:'sync',token:guest.token},start+600);
+  assert.deepEqual(restored.player.look,male);
+  assert.deepEqual(restored.player.outfits,{classic:male,female});
+});
+
 test('the test window accepts purchases and returns to the regular schedule at expiry', t=>{
   const data=setup();t.after(data.close);
   const from=midnight+5*60_000,until=from+2*60_000;

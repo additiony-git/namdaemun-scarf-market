@@ -22,6 +22,7 @@ export class Market {
     query('CREATE TABLE IF NOT EXISTS allowances (player TEXT PRIMARY KEY, round INTEGER NOT NULL)');
     query('CREATE TABLE IF NOT EXISTS looks (player TEXT PRIMARY KEY, hat TEXT NOT NULL, coat TEXT NOT NULL, bag TEXT NOT NULL, scarf TEXT NOT NULL)');
     query('CREATE TABLE IF NOT EXISTS avatar_styles (player TEXT PRIMARY KEY, character TEXT NOT NULL)');
+    query('CREATE TABLE IF NOT EXISTS character_outfits (player TEXT NOT NULL, character TEXT NOT NULL, hat TEXT NOT NULL, coat TEXT NOT NULL, bag TEXT NOT NULL, scarf TEXT NOT NULL, PRIMARY KEY (player, character))');
     query('CREATE TABLE IF NOT EXISTS daily_rare_sales (day INTEGER PRIMARY KEY)');
   }
   get(sql, ...args) { return this.query(sql, ...args)[0]; }
@@ -106,6 +107,11 @@ export class Market {
           if (!['classic','none'].includes(selected.scarf) && !this.get('SELECT qty FROM basket WHERE player = ? AND item = ? AND qty > 0', player.id, selected.scarf)) {
             return problem('장바구니에 있는 스카프만 착용할 수 있어요.', 409);
           }
+          if (look.character !== selected.character) {
+            this.query('INSERT OR IGNORE INTO character_outfits VALUES (?, ?, ?, ?, ?, ?)', player.id, look.character, look.hat, look.coat, look.bag, look.scarf);
+          }
+          this.query('INSERT INTO character_outfits VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(player, character) DO UPDATE SET hat = excluded.hat, coat = excluded.coat, bag = excluded.bag, scarf = excluded.scarf',
+            player.id, selected.character, selected.hat, selected.coat, selected.bag, selected.scarf);
           this.query('INSERT INTO looks VALUES (?, ?, ?, ?, ?) ON CONFLICT(player) DO UPDATE SET hat = excluded.hat, coat = excluded.coat, bag = excluded.bag, scarf = excluded.scarf',
             player.id, selected.hat, selected.coat, selected.bag, selected.scarf);
           this.query('INSERT INTO avatar_styles VALUES (?, ?) ON CONFLICT(player) DO UPDATE SET character = excluded.character', player.id, selected.character);
@@ -146,9 +152,11 @@ export class Market {
       this.people.set(player.id, { id: player.id, name: player.name, x, z, seen: now, speech, look });
       const ranking = this.query('SELECT id, name, collected FROM players WHERE collected > 0 ORDER BY collected DESC, reached ASC, id ASC LIMIT 30');
       const myRank = player.collected ? this.get('SELECT COUNT(*) + 1 AS rank FROM players WHERE collected > ? OR (collected = ? AND reached < ?)', player.collected, player.collected, player.reached).rank : null;
+      const outfits = Object.fromEntries(this.query('SELECT character, hat, coat, bag, scarf FROM character_outfits WHERE player = ?', player.id).map(row=>[row.character,normalizeLook(row)]));
+      outfits[look.character] = look;
       return {
         token: issued, event, speech: speech?.sentAt + CHAT_FEED_MS > now ? speech : undefined, now, ...this.inventory(now, session),
-        player: { id: player.id, name: player.name, cash: player.cash, sold: player.sold, collected: player.collected, rank: myRank, look },
+        player: { id: player.id, name: player.name, cash: player.cash, sold: player.sold, collected: player.collected, rank: myRank, look, outfits },
         basket: this.query('SELECT item, qty, updated FROM basket WHERE player = ? ORDER BY updated DESC, item', player.id),
         ranking, online: this.people.size,
         peers: [...this.people.values()].filter(p => p.id !== player.id).slice(0, 35).map(({ id, name, x, z, speech, look }) =>

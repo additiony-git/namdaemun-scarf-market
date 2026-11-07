@@ -1,4 +1,4 @@
-import { AVATAR_OPTIONS, CHAT_FEED_MS, CHAT_LIMIT, CHAT_MS, CLOTH, DEFAULT_LOOK, JUNK, LINES, MARKET_ITEMS, SCARVES, SPAWN, STOCK, START_MONEY, chatText, dailyRare, marketSession, niceName, normalizeLook, seoulDay, seoulDayStart } from './catalog.mjs';
+import { AVATAR_OPTIONS, CHAT_FEED_MS, CHAT_LIMIT, CHAT_MS, CLOTH, DEFAULT_LOOK, JUNK, LINES, MARKET_ITEMS, SCARVES, SPAWN, STOCK, START_MONEY, avatarOptionsFor, chatText, dailyRare, marketSession, niceName, normalizeLook, seoulDay, seoulDayStart } from './catalog.mjs';
 import { MARKET_API } from './config.mjs';
 import { createWorld, drawAvatarPreview } from './world.mjs';
 
@@ -47,13 +47,14 @@ let token=read(tokenKey), model, world, mode=endpoint?'loading':'solo', modal=''
 let enteredMarket=false;
 let muted=true, audioCtx, toastTimer, acting=false;
 let profileTab='avatar', profileFeedback='';
+const profileDrafts=new Map();
 let nearby='', shop='', shopSignature='', inventory, feed, retryFeedAt=0, transitionRequested=0;
 let soldoutPreview=false, soldoutPreviewTimer;
 let soldoutEffectFrame, soldoutEffectTimer;
 let lastLine=0, filter='all', sendingChat=false;
 const seenChat=new Set();
 const products=[...MARKET_ITEMS,...JUNK];
-const partLabels={character:'캐릭터',hat:'모자',coat:'옷',bag:'가방',scarf:'목에 두른 스카프'};
+const partLabels={character:'캐릭터',hat:'머리 소품',coat:'옷',bag:'가방',scarf:'목에 두른 스카프'};
 const openingTime=new Intl.DateTimeFormat('ko-KR',{timeZone:'Asia/Seoul',month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit',hourCycle:'h23'});
 const closedStock=Object.fromEntries(MARKET_ITEMS.map(item=>[item.id,0]));
 const dialog=$('modal');
@@ -82,6 +83,8 @@ function demo(action='sync', extra={}) {
       throw Error('장바구니에 있는 스카프만 착용할 수 있어요.');
     }
     p.name=name;
+    const previous=normalizeLook(p.look);
+    p.outfits={...p.outfits,[previous.character]:previous,[look.character]:look};
     p.look=look;
     event='프로필을 저장했어요.';
   }
@@ -274,6 +277,7 @@ function modalInfo(type){
   })[type];
 }
 function open(type, tab='avatar'){
+  profileDrafts.clear();
   modal=type;
   profileTab=tab;
   profileFeedback='';
@@ -376,20 +380,38 @@ function previewLook(){
   const form=$('profile-form'),canvas=$('avatar-preview');
   if(form&&canvas)drawAvatarPreview(canvas,selectedLook(form),canvas.dataset.turned==='true');
 }
+function wardrobeOptions(part,look){
+  let options;
+  if(part==='scarf'){
+    const owned=new Set(model.basket.filter(item=>item.qty>0).map(item=>item.item));
+    options=[['classic',{name:'기본 주홍 스카프'}],['none',{name:'스카프 없음'}],...SCARVES.filter(item=>owned.has(item.id)).map(item=>[item.id,item])];
+  }else options=avatarOptionsFor(part,look.character);
+  const markup=items=>items.map(([id,option])=>'<option value="'+id+'"'+(look[part]===id?' selected':'')+'>'+(option.rare?'✦ 레어 · ':'')+option.name+'</option>').join('');
+  const exclusive=options.filter(([,option])=>option.character);
+  return exclusive.length
+    ? '<optgroup label="'+AVATAR_OPTIONS.character[look.character].wardrobe+'">'+markup(exclusive)+'</optgroup><optgroup label="공용 소품">'+markup(options.filter(([,option])=>!option.character))+'</optgroup>'
+    : markup(options);
+}
+function switchCharacter(form){
+  const choice=selectedLook(form),previous=form.dataset.character;
+  profileDrafts.set(previous,{...choice,character:previous});
+  const next=profileDrafts.get(choice.character)??model.player.outfits?.[choice.character];
+  const look=normalizeLook({...next,character:choice.character});
+  form.dataset.character=look.character;
+  for(const part of ['hat','coat','bag','scarf'])form.elements.namedItem(part).innerHTML=wardrobeOptions(part,look);
+  $('wardrobe-label').textContent=AVATAR_OPTIONS.character[look.character].wardrobe;
+}
 function wardrobe(){
-  const owned=new Set(model.basket.filter(item=>item.qty>0).map(item=>item.item));
-  const scarves={classic:{name:'기본 주홍 스카프'},none:{name:'스카프 없음'}};
-  for(const item of SCARVES)if(owned.has(item.id))scarves[item.id]=item;
   const look=normalizeLook(model.player.look);
-  const fields=Object.entries({...AVATAR_OPTIONS,scarf:scarves}).map(([part,options])=>{
-    const choices=Object.entries(options).map(([id,option])=>'<option value="'+id+'"'+(look[part]===id?' selected':'')+'>'+(option.rare?'✦ 레어 · ':'')+option.name+'</option>').join('');
-    return '<label for="look-'+part+'">'+partLabels[part]+'</label><select id="look-'+part+'" name="'+part+'">'+choices+'</select>';
-  }).join('');
-  return '<form class="profile-form" id="profile-form"><fieldset id="profile-fields"><div class="profile-editor">'+
+  const fields=Object.keys(partLabels).map(part=>
+    '<label for="look-'+part+'">'+partLabels[part]+'</label><select id="look-'+part+'" name="'+part+'">'+wardrobeOptions(part,look)+'</select>'
+  ).join('');
+  return '<form class="profile-form" id="profile-form" data-character="'+look.character+'"><fieldset id="profile-fields"><div class="profile-editor">'+
     '<div class="avatar-card"><canvas id="avatar-preview" width="230" height="230" role="img" aria-label="선택한 캐릭터 미리보기"></canvas>'+
+    '<p id="wardrobe-label" class="wardrobe-label" aria-live="polite">'+AVATAR_OPTIONS.character[look.character].wardrobe+'</p>'+
     '<button id="rotate-avatar" class="glass" type="button" aria-pressed="false">'+icon('turn')+' 뒤집어 보기</button></div>'+
     '<div class="profile-choices"><label for="new-name">닉네임</label><input id="new-name" name="name" required maxlength="28" value="'+safe(model.player.name)+'">'+
-    fields+'</div></div><p class="modal-note wardrobe-note">장바구니에 있는 스카프도 골라서 착용할 수 있어요.</p>'+
+    fields+'</div></div><p class="modal-note wardrobe-note">차림은 캐릭터별로 저장돼요. 장바구니의 스카프도 착용할 수 있어요.</p>'+
     '<div class="profile-save"><p id="profile-feedback" class="dialog-feedback" role="status"></p><button class="primary" type="submit">프로필 저장</button></div></fieldset></form>';
 }
 function renderProfile(body){
@@ -591,7 +613,10 @@ document.addEventListener('click', e=>{
   }
 });
 document.addEventListener('change',e=>{
-  if(e.target.matches('#profile-form select'))previewLook();
+  if(e.target.matches('#profile-form select')){
+    if(e.target.name==='character')switchCharacter(e.target.form);
+    previewLook();
+  }
 });
 document.addEventListener('input',e=>{
   if(e.target.closest('#profile-form')){

@@ -32,14 +32,14 @@ canvas { position: absolute; inset: 0; display: block; width: 100%; height: 100%
 }
 .entrance {
   position: absolute; z-index: 5; inset: 0; isolation: isolate; overflow: hidden;
-  background: #29151bbb;
+  background: #2a1b14bb;
 }
 .entrance-art { position: absolute; z-index: -2; inset: 0; }
 .entrance-art img { display: block; width: 100%; height: 100%; object-fit: cover; object-position: center; color: transparent; }
 .entrance::before {
   content: ""; position: absolute; z-index: -1; inset: 0; pointer-events: none;
-  background: linear-gradient(180deg, #1c1022b8, #21101a0f 29%, transparent 69%, #1c0d17ba 100%),
-    radial-gradient(ellipse at 50% 47%, transparent 40%, #170d1e57 100%);
+  background: linear-gradient(180deg, #20140db5, #24180e0f 29%, transparent 69%, #20130cb5 100%),
+    radial-gradient(ellipse at 50% 47%, transparent 40%, #21160e50 100%);
 }
 .entrance-inner {
   display: flex; flex-direction: column; align-items: center; justify-content: space-between;
@@ -392,6 +392,7 @@ dialog::backdrop { background: #130e0bc9; backdrop-filter: blur(3px); }
   border: 1px solid #84603f; border-radius: 10px; background: radial-gradient(ellipse at 52% 44%, #704d35, #32241b 76%);
 }
 .avatar-card canvas { position: static; display: block; width: 100%; height: auto; max-width: 190px; }
+.wardrobe-label { margin: 0 0 5px; color: #f1d19f; font-size: 11px; font-weight: 850; text-align: center; }
 #rotate-avatar { display: flex; align-items: center; gap: 4px; padding: 5px 6px; font-size: 10px; white-space: nowrap; }
 #rotate-avatar i { width: 13px; height: 13px; }
 .profile-choices { display: grid; grid-template-columns: minmax(0, 1fr); align-content: start; gap: 3px; }
