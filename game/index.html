@@ -13,20 +13,17 @@
   <main class="stage" id="stage" aria-label="쓸모없는 소비시장" tabindex="-1">
     <canvas id="world" aria-label="남대문 시장 3D 골목" aria-hidden="true"></canvas>
     <section class="entrance" id="entrance" aria-labelledby="entrance-title">
+      <picture class="entrance-art">
+        <source media="(max-aspect-ratio: 3/4)" srcset="./market-intro-portrait.webp">
+        <img src="./market-intro.webp" alt="스카프 아저씨가 환호하는 남대문 장터 손님들 앞에서 길게 펼쳐지는 스카프를 흔드는 모습" fetchpriority="high">
+      </picture>
       <div class="entrance-inner">
-        <div class="entrance-brand">
-          <img src="./mark.svg" width="46" height="46" alt="">
-          <span><strong>남대문 스카프 상회</strong><small>NAMDAEMUN MARKET</small></span>
-        </div>
-        <div class="entrance-copy">
-          <p class="entrance-eyebrow"><span aria-hidden="true">✦</span> 남대문 골목 구경</p>
+        <div class="entrance-logo">
           <h1 id="entrance-title"><span>쓸모없는</span> <span>소비시장</span></h1>
-          <p class="entrance-description">구경만 하러 왔다가, 오늘도 보물을 하나.</p>
-          <button type="button" class="enter-market" id="enter-market">
-            시장입장하기 <span aria-hidden="true"><i data-icon="arrow"></i></span>
-          </button>
         </div>
-        <p class="entrance-location"><i data-icon="pin" aria-hidden="true"></i> 서울 남대문시장 <span aria-hidden="true">/</span> 스카프 골목</p>
+        <button type="button" class="enter-market" id="enter-market">
+          시장입장하기 <i data-icon="arrow" aria-hidden="true"></i>
+        </button>
       </div>
     </section>
     <div id="market-ui" hidden>
@@ -70,7 +67,7 @@
     <header class="topbar">
       <div class="brand">
         <img src="./mark.svg" width="40" height="40" alt="">
-        <span><strong>남대문 스카프 상회</strong><small>SEOUL · NAMDAEMUN MARKET</small></span>
+        <span><strong>남대문 스카프 상회</strong><small>01 · 첫 번째 시장</small></span>
       </div>
       <div class="location"><i data-icon="pin"></i> 남대문시장 <span> / </span> 스카프 골목</div>
       <nav class="nav" aria-label="게임 메뉴">

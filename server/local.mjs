@@ -24,7 +24,7 @@ const market=new Market((sql,...params)=>{
   try{const result=fn();db.exec('COMMIT');return result;}
   catch(error){db.exec('ROLLBACK');throw error;}
 });
-const types={'.html':'text/html','.mjs':'application/javascript','.css':'text/css','.svg':'image/svg+xml','.png':'image/png'};
+const types={'.html':'text/html','.mjs':'application/javascript','.css':'text/css','.svg':'image/svg+xml','.png':'image/png','.webp':'image/webp'};
 const server=createServer(async (req,res)=>{
   try{
     const origin='http://'+req.headers.host;
