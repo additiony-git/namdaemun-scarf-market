@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { DatabaseSync } from 'node:sqlite';
 import { Market, endpoint } from '../server/market.mjs';
-import { CHAT_FEED_MS, CHAT_MS, DEFAULT_LOOK, MARKET_DURATION, STOCK, START_MONEY, marketSession } from '../game/catalog.mjs';
+import { CHAT_FEED_MS, CHAT_MS, DEFAULT_LOOK, MARKET_DURATION, RARE_SCARVES, STOCK, START_MONEY, dailyRare, marketSession } from '../game/catalog.mjs';
 
 const midnight=Date.parse('2026-11-08T00:00:00+09:00');
 const start=marketSession(midnight).next;
@@ -77,7 +77,7 @@ test('two shoppers share one limited stock; only the first gets the last item, t
   assert.equal(closed.stock.scarf,0);
   const next=closed.next;
   const refill=market.action({action:'sync',token:b},next);
-  assert.deepEqual(refill.stock,STOCK);
+  assert.deepEqual(refill.stock,{...STOCK,[dailyRare(next).id]:1});
   assert.equal(refill.player.cash,START_MONEY);
   market.action({action:'buy',item:'hanky',token:b},next+400);
   assert.equal(market.action({action:'sync',token:b},next+800).player.cash,START_MONEY-450);
@@ -147,7 +147,7 @@ test('profile saves purchased clothing and shares the look without sharing the b
   const guest=market.action({action:'join'},start);
   const neighbor=market.action({action:'join'},start);
   assert.deepEqual(guest.player.look,DEFAULT_LOOK);
-  const look={hat:'knit',coat:'mustard',bag:'tote',scarf:'indigo-stripe'};
+  const look={character:'female',hat:'knit',coat:'mustard',bag:'tote',scarf:'indigo-stripe'};
   const save={action:'profile',token:guest.token,name:'시장 단골',look};
   assert.equal(market.action(save,start+100).status,409);
   assert.equal(market.action({...save,look:{...look,hat:'constructor'}},start+200).status,400);
@@ -163,6 +163,9 @@ test('profile saves purchased clothing and shares the look without sharing the b
   const restored=data.create().action({action:'sync',token:guest.token},start+800);
   assert.deepEqual(restored.player.look,look);
   assert.equal(restored.player.name,'시장 단골');
+  const {character,...legacyLook}=look;
+  const olderClient=market.action({...save,look:legacyLook},start+900);
+  assert.equal(olderClient.player.look.character,character);
 });
 
 test('the test window accepts purchases and returns to the regular schedule at expiry', t=>{
@@ -199,4 +202,26 @@ test('a regular market can close after a test ends during its opening', t=>{
   assert.ok(bought.revision>guest.revision);
   assert.ok(closed.revision>bought.revision);
   assert.equal(closed.open,false);
+});
+
+test('exactly one rare scarf can be bought across all sessions on the same Seoul date', t=>{
+  const data=setup();t.after(data.close);
+  const market=data.create();
+  const first=market.action({action:'join'},start);
+  const second=market.action({action:'join'},start);
+  const rare=dailyRare(start);
+  const count=state=>RARE_SCARVES.reduce((sum,item)=>sum+state.stock[item.id],0);
+  assert.equal(count(first),1);
+  const purchased=market.action({action:'buy',token:first.token,item:rare.id},start+100);
+  assert.equal(purchased.player.cash,START_MONEY-rare.price);
+  assert.equal(purchased.basket[0].item,rare.id);
+  assert.equal(count(purchased),0);
+  assert.equal(market.action({action:'buy',token:second.token,item:rare.id},start+100).status,409);
+  const later=market.action({action:'sync',token:second.token},first.next);
+  assert.equal(count(later),0);
+  assert.equal(later.stock.scarf,STOCK.scarf);
+  const nextDay=marketSession(midnight+86_400_000).next;
+  const tomorrow=market.action({action:'sync',token:second.token},nextDay);
+  assert.equal(count(tomorrow),1);
+  assert.notEqual(tomorrow.rare,rare.id);
 });

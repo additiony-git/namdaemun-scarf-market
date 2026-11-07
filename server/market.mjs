@@ -1,11 +1,11 @@
-import { CHAT_FEED_MS, CHAT_LIMIT, CHAT_MS, CLOTH, JUNK, MAP, SPAWN, START_MONEY, STOCK, chatText, fit, marketSession, niceName, normalizeLook } from '../game/catalog.mjs';
+import { CHAT_FEED_MS, CHAT_LIMIT, CHAT_MS, JUNK, MAP, MARKET_ITEMS, SPAWN, START_MONEY, STOCK, chatText, dailyRare, fit, marketSession, niceName, normalizeLook, seoulDay, seoulDayStart } from '../game/catalog.mjs';
 
 const defaultName = '새내기 손님';
 const presenceMs = 30_000;
 const tradeMs = 350;
 const chatCooldown = 1800;
 const minute = 60_000;
-const closedStock = Object.fromEntries(CLOTH.map(item => [item.id, 0]));
+const closedStock = Object.fromEntries(MARKET_ITEMS.map(item => [item.id, 0]));
 const problem = (error, status = 400) => ({ error, status });
 const newToken = () => Array.from(crypto.getRandomValues(new Uint8Array(24)), n => n.toString(16).padStart(2, '0')).join('');
 export class Market {
@@ -21,6 +21,8 @@ export class Market {
     query('CREATE TABLE IF NOT EXISTS basket (player TEXT NOT NULL, item TEXT NOT NULL, qty INTEGER NOT NULL, updated INTEGER NOT NULL, PRIMARY KEY(player, item))');
     query('CREATE TABLE IF NOT EXISTS allowances (player TEXT PRIMARY KEY, round INTEGER NOT NULL)');
     query('CREATE TABLE IF NOT EXISTS looks (player TEXT PRIMARY KEY, hat TEXT NOT NULL, coat TEXT NOT NULL, bag TEXT NOT NULL, scarf TEXT NOT NULL)');
+    query('CREATE TABLE IF NOT EXISTS avatar_styles (player TEXT PRIMARY KEY, character TEXT NOT NULL)');
+    query('CREATE TABLE IF NOT EXISTS daily_rare_sales (day INTEGER PRIMARY KEY)');
   }
   get(sql, ...args) { return this.query(sql, ...args)[0]; }
   prune(now) {
@@ -37,21 +39,24 @@ export class Market {
   }
   inventory(now, session = this.session(now)) {
     const { round, open } = session;
-    const phaseMinute = open ? round : Math.floor(session.closes / minute);
+    const phaseMinute = Math.max(open ? round : Math.floor(session.closes / minute), Math.floor(seoulDayStart(now) / minute));
     const scheduledRevision = phaseMinute * 1000 + (session.testing ? 700 : open ? 0 : 500);
     // Keep snapshots ordered when the test ends between regular sessions.
     const expired = this.testWindow && now >= this.testWindow.until;
     const expiryMinute = expired ? Math.floor(this.testWindow.until / minute) : 0;
     const shortWindow = expired && Math.floor(this.testWindow.from / minute) === expiryMinute;
     const revision = expired ? Math.max(scheduledRevision, expiryMinute * 1000 + (shortWindow ? 800 : 0)) : scheduledRevision;
-    if (!open) return { ...session, stock: closedStock, goods: {}, revision };
+    const rare = dailyRare(now).id;
+    if (!open) return { ...session, stock: closedStock, goods: {}, rare, revision };
     const stock = { ...STOCK };
     let used = 0;
     for (const { item, qty } of this.query('SELECT item, qty FROM cloth_sales WHERE round = ?', round)) {
       stock[item] -= qty;
       used += qty;
     }
-    return { ...session, stock, goods: {}, revision: revision + used };
+    if (this.get('SELECT day FROM daily_rare_sales WHERE day = ?', seoulDay(now))) used++;
+    else stock[rare] = 1;
+    return { ...session, stock, goods: {}, rare, revision: revision + used };
   }
   action(body, now = Date.now(), ip = 'local') {
     const { action, token, pos } = body ?? {};
@@ -88,13 +93,14 @@ export class Market {
       const z = fit(pos?.z, MAP.minZ, MAP.maxZ, previous.z);
       let event;
       let speech = previous.speech;
-      let look = normalizeLook(this.get('SELECT hat, coat, bag, scarf FROM looks WHERE player = ?', player.id));
+      let look = normalizeLook(this.get('SELECT looks.hat, looks.coat, looks.bag, looks.scarf, avatar_styles.character FROM players LEFT JOIN looks ON looks.player = players.id LEFT JOIN avatar_styles ON avatar_styles.player = players.id WHERE players.id = ?', player.id));
       if (action === 'rename' || action === 'profile') {
         const name = niceName(typeof body.name === 'string' ? body.name.slice(0, 120) : '');
         if (!name) return problem('한 글자 이상 입력해 주세요.');
         if (action === 'profile') {
-          const selected = normalizeLook(body.look);
-          if (Object.entries(selected).some(([key, value]) => body.look?.[key] !== value)) {
+          const requested = { ...body.look, character: body.look?.character ?? look.character };
+          const selected = normalizeLook(requested);
+          if (Object.entries(selected).some(([key, value]) => requested[key] !== value)) {
             return problem('꾸미기 목록에 있는 아이템을 골라 주세요.');
           }
           if (!['classic','none'].includes(selected.scarf) && !this.get('SELECT qty FROM basket WHERE player = ? AND item = ? AND qty > 0', player.id, selected.scarf)) {
@@ -102,13 +108,14 @@ export class Market {
           }
           this.query('INSERT INTO looks VALUES (?, ?, ?, ?, ?) ON CONFLICT(player) DO UPDATE SET hat = excluded.hat, coat = excluded.coat, bag = excluded.bag, scarf = excluded.scarf',
             player.id, selected.hat, selected.coat, selected.bag, selected.scarf);
+          this.query('INSERT INTO avatar_styles VALUES (?, ?) ON CONFLICT(player) DO UPDATE SET character = excluded.character', player.id, selected.character);
           look = selected;
         }
         this.query('UPDATE players SET name = ? WHERE id = ?', name, player.id);
         player.name = name;
         event = action === 'profile' ? '프로필을 저장했어요.' : '간판에 새 닉네임을 걸었어요.';
       } else if (action === 'buy') {
-        const item = CLOTH.find(entry => entry.id === body.item);
+        const item = MARKET_ITEMS.find(entry => entry.id === body.item);
         if (!item) return JUNK.some(entry => entry.id === body.item)
           ? problem('잡화점은 오픈 준비 중이에요.', 409) : problem('매대에 없는 물건이에요.');
         if (!open) return problem('장이 닫혔어요. 다음 개장 시간을 확인해 주세요.', 409);
@@ -118,8 +125,12 @@ export class Market {
           return problem('다른 손님이 먼저 가져갔어요. 다음 장을 기다려 주세요.', 409);
         }
         if (player.cash < item.price) return problem('장터돈이 부족해요. 다음 장이 열리면 예산이 다시 채워져요.', 409);
-        this.query('INSERT INTO cloth_sales VALUES (?, ?, 1) ON CONFLICT(round,item) DO UPDATE SET qty = qty + 1', round, item.id);
-        this.query('DELETE FROM cloth_sales WHERE round < ?', round - 3 * 24 * 60);
+        if (item.rare) {
+          this.query('INSERT INTO daily_rare_sales VALUES (?)', seoulDay(now));
+        } else {
+          this.query('INSERT INTO cloth_sales VALUES (?, ?, 1) ON CONFLICT(round,item) DO UPDATE SET qty = qty + 1', round, item.id);
+          this.query('DELETE FROM cloth_sales WHERE round < ?', round - 3 * 24 * 60);
+        }
         this.query('UPDATE players SET cash = cash - ?, traded = ? WHERE id = ?', item.price, now, player.id);
         this.query('INSERT INTO basket VALUES (?, ?, 1, ?) ON CONFLICT(player,item) DO UPDATE SET qty = qty + 1, updated = excluded.updated', player.id, item.id, now);
         player.cash -= item.price;

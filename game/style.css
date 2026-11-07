@@ -93,6 +93,17 @@ canvas { position: absolute; inset: 0; display: block; width: 100%; height: 100%
 .speech-speaker { display: flex; align-items: center; gap: 5px; margin-bottom: 3px; color: #9a4529; font-size: 11px; }
 .speech-speaker img { border-radius: 5px; }
 .speech-speaker i { margin-left: auto; width: 13px; height: 13px; }
+.speech-reopen { display: block; width: fit-content; margin-top: 5px; padding: 2px 5px; border-radius: 4px; color: #793c22; background: #ecd8ac; font-size: 10px; font-weight: 900; }
+.soldout-tag { margin-left: auto; padding: 2px 5px; border-radius: 4px; color: #fff4dd; background: #a74429; white-space: nowrap; font-size: 9px; }
+.speech[data-state=soldout] { border-color: #f0a159; background: #ffddab; box-shadow: 0 4px 17px #b25c395e; }
+.speech[data-state=soldout] .speech-speaker i, .speech[data-state=waiting] .speech-speaker i { display: none; }
+.speech.soldout-pop { transform-origin: 50% 100%; animation: soldout-pop .65s ease-out; }
+@keyframes soldout-pop {
+  0% { transform: translate(-50%,-100%) scale(.8); box-shadow: 0 0 0 0 #ffd788b0; }
+  30% { transform: translate(-50%,-100%) scale(1.12); }
+  100% { transform: translate(-50%,-100%) scale(1); box-shadow: 0 0 0 19px #ffd78800; }
+}
+@media (prefers-reduced-motion: reduce) { .speech.soldout-pop { animation: none; } }
 .peer-label { padding: 2px 5px; border: 1px solid #92c48f85; border-radius: 4px; color: #eaf7e4; background: #1e2b22e8; font-size: 10px; white-space: nowrap; }
 .player-speech {
   position: absolute; z-index: 1; transform: translate(-50%, -100%); width: max-content;
@@ -165,6 +176,10 @@ kbd { display: inline-grid; place-items: center; min-width: 21px; height: 22px; 
 .shop-closed { display: grid; gap: 6px; padding: 14px 10px; text-align: center; border: 1px dashed #b58c5f80; border-radius: 8px; background: #45302261; }
 .shop-closed strong { color: var(--gold); font-size: 17px; }
 .shop-closed p { margin: 0; color: var(--muted); font-size: 11px; }
+.shop-soldout { border-color: #e9a45caa; background: #60392289; }
+.shop-soldout p span { color: var(--muted); font-size: 9px; }
+.daily-rare { margin-bottom: 7px; padding: 6px 7px; border: 1px solid #d9a2628c; border-radius: 6px; color: #ffdd91; background: #543923; font-size: 10px; font-weight: 900; }
+.rare-tag { display: inline-block; margin-left: 5px; padding: 1px 4px; border-radius: 3px; background: #e1b461; color: #332010; font-size: 8px; vertical-align: 1px; white-space: nowrap; }
 .closed-tag { color: var(--muted); font-size: 9px; font-weight: 800; letter-spacing: .12em; }
 .shop-items { overflow: auto; overscroll-behavior: contain; }
 .shop-feedback { margin: 0; font-size: 11px; line-height: 1.4; color: var(--gold); }

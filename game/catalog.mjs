@@ -17,8 +17,18 @@ export const CLOTH = [
   { id: 'navy-dot', group: 'hanky', name: '밤하늘 점박이 손수건', price: 450, count: 3, color: '#4e547f', ink: '#e8dba6', pattern: 'dot', detail: '짙은 남색 사이로 별 같은 점이 보여요.' },
   { id: 'rice-stripe', group: 'hanky', name: '쌀빛 테두리 손수건', price: 400, count: 3, color: '#ebd9b2', ink: '#bc7f61', pattern: 'stripe', detail: '쌀빛 바탕에 부드러운 살구색 테두리.' },
 ];
-export const STOCK = Object.fromEntries(CLOTH.map(item => [item.id, item.count]));
+export const RARE_SCARVES = [
+  { id: 'moon-rabbit', group: 'scarf', name: '은빛 달토끼 스카프', price: 1200, count: 1, rare: true, color: '#675e9d', ink: '#f3e0c2', pattern: 'dot', detail: '보랏빛 밤하늘에 달빛을 한 올 섞었어요.' },
+  { id: 'golden-knot', group: 'scarf', name: '금빛 매듭 스카프', price: 1200, count: 1, rare: true, color: '#8b3b52', ink: '#f3ca70', pattern: 'paisley', detail: '자줏빛 천 위로 금빛 매듭이 이어져요.' },
+  { id: 'pearl-stars', group: 'scarf', name: '별빛 자개 스카프', price: 1200, count: 1, rare: true, color: '#286f6d', ink: '#d6f0dd', pattern: 'wave', detail: '물결에 비친 자개빛이 각도마다 달라 보여요.' },
+];
+export const MARKET_ITEMS = [...CLOTH, ...RARE_SCARVES];
+export const STOCK = Object.fromEntries(MARKET_ITEMS.map(item => [item.id, item.rare ? 0 : item.count]));
 export const AVATAR_OPTIONS = {
+  character: {
+    classic: { name: '기본 캐릭터' },
+    female: { name: '여자 캐릭터' },
+  },
   hat: {
     cap: { name: '쪽빛 볼캡', color: '546374' },
     knit: { name: '벽돌색 비니', color: '9c4840' },
@@ -38,8 +48,8 @@ export const AVATAR_OPTIONS = {
     none: { name: '가방 없음' },
   },
 };
-export const DEFAULT_LOOK = { hat: 'cap', coat: 'teal', bag: 'backpack', scarf: 'classic' };
-export const SCARVES = CLOTH.filter(item => item.group === 'scarf');
+export const DEFAULT_LOOK = { character: 'classic', hat: 'cap', coat: 'teal', bag: 'backpack', scarf: 'classic' };
+export const SCARVES = MARKET_ITEMS.filter(item => item.group === 'scarf');
 export function normalizeLook(value) {
   const look = { ...DEFAULT_LOOK };
   for (const [part, options] of Object.entries(AVATAR_OPTIONS)) {
@@ -76,6 +86,9 @@ export const LINES = [
 const minute = 60_000;
 const dayLength = 24 * 60 * minute;
 const seoulOffset = 9 * 60 * minute;
+export const seoulDay = now => Math.floor((now + seoulOffset) / dayLength);
+export const seoulDayStart = now => seoulDay(now) * dayLength - seoulOffset;
+export const dailyRare = now => RARE_SCARVES[((seoulDay(now) % RARE_SCARVES.length) + RARE_SCARVES.length) % RARE_SCARVES.length];
 export const MARKET_DURATION = 45 * minute;
 const openingBands = [[9 * 60, 12 * 60], [13 * 60, 17 * 60], [18 * 60, 22 * 60]];
 
@@ -91,7 +104,7 @@ function openings(day) {
 }
 
 export function marketSession(now) {
-  const day = Math.floor((now + seoulOffset) / dayLength);
+  const day = seoulDay(now);
   const today = openings(day);
   const previous = today.findLast(opening => opening <= now) ?? openings(day - 1)[2];
   const next = today.find(opening => opening > now) ?? openings(day + 1)[0];

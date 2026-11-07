@@ -1,4 +1,4 @@
-import { AVATAR_OPTIONS, CHAT_FEED_MS, CHAT_LIMIT, CHAT_MS, CLOTH, DEFAULT_LOOK, JUNK, LINES, SCARVES, SPAWN, STOCK, START_MONEY, chatText, marketSession, niceName, normalizeLook } from './catalog.mjs';
+import { AVATAR_OPTIONS, CHAT_FEED_MS, CHAT_LIMIT, CHAT_MS, CLOTH, DEFAULT_LOOK, JUNK, LINES, MARKET_ITEMS, SCARVES, SPAWN, STOCK, START_MONEY, chatText, dailyRare, marketSession, niceName, normalizeLook, seoulDay, seoulDayStart } from './catalog.mjs';
 import { MARKET_API } from './config.mjs';
 import { createWorld, drawAvatarPreview } from './world.mjs';
 
@@ -49,10 +49,10 @@ let profileTab='avatar', profileFeedback='';
 let nearby='', shop='', shopSignature='', inventory, feed, retryFeedAt=0, transitionRequested=0;
 let lastLine=0, filter='all', sendingChat=false;
 const seenChat=new Set();
-const products=[...CLOTH,...JUNK];
-const partLabels={hat:'모자',coat:'옷',bag:'가방',scarf:'목에 두른 스카프'};
+const products=[...MARKET_ITEMS,...JUNK];
+const partLabels={character:'캐릭터',hat:'모자',coat:'옷',bag:'가방',scarf:'목에 두른 스카프'};
 const openingTime=new Intl.DateTimeFormat('ko-KR',{timeZone:'Asia/Seoul',month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit',hourCycle:'h23'});
-const closedStock=Object.fromEntries(CLOTH.map(item=>[item.id,0]));
+const closedStock=Object.fromEntries(MARKET_ITEMS.map(item=>[item.id,0]));
 const dialog=$('modal');
 function demo(action='sync', extra={}) {
   let data;
@@ -60,6 +60,8 @@ function demo(action='sync', extra={}) {
   data ??= { player:blank(), basket:[], round:-1, stock:{...STOCK} };
   const now=Date.now();
   const session=marketSession(now);
+  const rare=dailyRare(now).id;
+  const day=seoulDay(now);
   if(data.player.name==='새내기 상인')data.player.name='새내기 손님';
   if(session.open&&data.round!==session.round){
     data.round=session.round;
@@ -67,6 +69,7 @@ function demo(action='sync', extra={}) {
     data.player.cash=Math.max(data.player.cash,START_MONEY);
   }
   const p=data.player;
+  const stock={...STOCK,...data.stock,[rare]:data.rareSoldDay===day?0:1};
   let event;
   if(action==='profile'){
     const name=niceName(extra.name);
@@ -80,12 +83,14 @@ function demo(action='sync', extra={}) {
     event='프로필을 저장했어요.';
   }
   if(action==='buy'){
-    const item=CLOTH.find(i=>i.id===extra.item);
+    const item=MARKET_ITEMS.find(i=>i.id===extra.item);
     if(!item) throw Error('매대에 없는 물건이에요.');
     if(!session.open)throw Error('장이 닫혔어요. 다음 개장 시간을 확인해 주세요.');
-    if(!data.stock[item.id]) throw Error('이번 장에는 품절이에요. 다음 장을 기다려 주세요.');
+    if(!stock[item.id]) throw Error('이번 장에는 품절이에요. 다음 장을 기다려 주세요.');
     if(p.cash<item.price) throw Error('장터돈이 부족해요. 다음 장이 열리면 예산이 다시 채워져요.');
-    data.stock[item.id]--;
+    stock[item.id]--;
+    if(item.rare)data.rareSoldDay=day;
+    else data.stock[item.id]--;
     p.cash-=item.price;
     const existing=data.basket.find(i=>i.item===item.id);
     if(existing){existing.qty++;existing.updated=now;}else data.basket.push({item:item.id,qty:1,updated:now});
@@ -94,9 +99,10 @@ function demo(action='sync', extra={}) {
   }
   p.rank=p.collected?1:null;
   write(demoKey,JSON.stringify(data));
-  const used=session.open?CLOTH.reduce((n,item)=>n+item.count-data.stock[item.id],0):500;
-  return {...data,...session,stock:session.open?data.stock:closedStock,
-    online:1,peers:[],ranking:p.collected?[p]:[],now,revision:session.round*1000+used,event};
+  const used=session.open?CLOTH.reduce((n,item)=>n+item.count-stock[item.id],0)+Number(data.rareSoldDay===day):500;
+  const phase=Math.max(session.open?session.round:session.closes/60_000,seoulDayStart(now)/60_000);
+  return {...data,...session,rare,stock:session.open?stock:closedStock,
+    online:1,peers:[],ranking:p.collected?[p]:[],now,revision:phase*1000+used,event};
 }
 async function request(action, extra={}){
   const response=await fetch(endpoint,{
@@ -121,11 +127,30 @@ function setModel(data){
   setInventory(data);
   render();
 }
+function marketAvailability(snapshot=inventory){
+  if(!snapshot)return 'loading';
+  if(!snapshot.open)return 'waiting';
+  return MARKET_ITEMS.some(item=>snapshot.stock[item.id]>0)?'selling':'soldout';
+}
+function nextSaleAt(snapshot=inventory){
+  if(snapshot.testing&&marketSession(snapshot.closes).open)return snapshot.closes;
+  return snapshot.next;
+}
 function setInventory(data){
   if(!data.stock||typeof data.open!=='boolean'||!Number.isSafeInteger(data.revision))return;
   if(inventory&&data.revision<=inventory.revision)return;
-  inventory={stock:data.stock,revision:data.revision,next:data.next,open:data.open,closes:data.closes,testing:Boolean(data.testing)};
+  const previous=marketAvailability();
+  const previousNext=inventory&&nextSaleAt();
+  inventory={stock:data.stock,revision:data.revision,next:data.next,open:data.open,closes:data.closes,testing:Boolean(data.testing),rare:data.rare};
+  const current=marketAvailability();
   world?.setStock(inventory.stock);
+  if(previous!==current||previousNext!==nextSaleAt())line();
+  if(previous==='selling'&&current==='soldout'){
+    const bubble=$('vendor-speech');
+    bubble.classList.remove('soldout-pop');
+    requestAnimationFrame(()=>bubble.classList.add('soldout-pop'));
+    toast('이번 장 완판! '+openingTime.format(nextSaleAt())+'에 다시 와요.');
+  }
   tick();
   renderShop();
 }
@@ -177,14 +202,17 @@ function status() {
 }
 function tick(){
   if(!inventory)return;
-  const deadline=inventory.open?inventory.closes:inventory.next;
+  const transition=inventory.open?inventory.closes:inventory.next;
+  const transitionPassed=transition<=Date.now()+timeOffset;
+  if(transitionPassed&&mode==='solo'){setModel(demo());return;}
+  if(transitionPassed&&mode==='online'&&transitionRequested!==transition){transitionRequested=transition;queue(0);}
+  const waiting=!inventory.open||marketAvailability()==='soldout';
+  const deadline=waiting?nextSaleAt():transition;
   const ms=Math.max(0,deadline-Date.now()-timeOffset);
-  if(!ms&&mode==='solo'){setModel(demo());return;}
-  if(!ms&&mode==='online'&&transitionRequested!==deadline){transitionRequested=deadline;queue(0);}
   const seconds=Math.ceil(ms/1000);
   const hours=Math.floor(seconds/3600);
   const minutes=String(Math.floor(seconds/60)%60).padStart(2,'0');
-  $('clock-label').textContent=inventory.testing?'테스트 마감':inventory.open?'장 마감':'다음 장';
+  $('clock-label').textContent=waiting?'다음 장':inventory.testing?'테스트 마감':'장 마감';
   $('countdown').textContent=(hours?hours+':':'')+minutes+':'+String(seconds%60).padStart(2,'0');
   $('countdown').title=openingTime.format(deadline)+' (한국 시간)';
 }
@@ -223,7 +251,8 @@ function itemRow(item, detail, end){
   const picture=item.pattern
     ? '<span class="item-pic" aria-hidden="true"><span class="swatch '+item.pattern+'" style="--cloth:'+item.color+';--ink:'+item.ink+'"></span></span>'
     : '<span class="item-pic" aria-hidden="true">'+item.pic+'</span>';
-  return '<div class="item">'+picture+'<span class="item-info"><strong>'+item.name+'</strong><small>'+detail+'</small></span>'+end+'</div>';
+  const rare=item.rare?'<span class="rare-tag">레어</span>':'';
+  return '<div class="item'+(item.rare?' rare-item':'')+'">'+picture+'<span class="item-info"><strong>'+item.name+rare+'</strong><small>'+detail+'</small></span>'+end+'</div>';
 }
 function openShop(type){
   shop=type;
@@ -247,8 +276,10 @@ function closeShop(){
 function renderShop(){
   if(!shop)return;
   const body=$('shop-items');
-  $('shop-summary').hidden=shop==='junk'||!inventory?.open;
-  $('shop-filters').hidden=shop==='junk'||!inventory?.open;
+  const status=marketAvailability();
+  $('shop-summary').hidden=shop==='junk'||status!=='selling';
+  $('shop-filters').hidden=shop==='junk'||status!=='selling';
+  $('daily-rare').hidden=shop==='junk'||status!=='selling'||!inventory?.rare;
   $('sale-label').textContent=inventory?.testing?'테스트 장 · 선착순 판매':'선착순 판매';
   if(shop==='junk'){
     body.innerHTML='<div class="shop-closed"><span class="closed-tag">OPENING SOON</span><strong>오픈 준비 중</strong><p>진열이 끝나면 잡화점 문을 열어요.</p></div>';
@@ -262,10 +293,17 @@ function renderShop(){
     body.innerHTML='<div class="shop-closed"><span class="closed-tag">NEXT MARKET</span><strong>다음 장 '+openingTime.format(inventory.next)+'</strong><p>한국 시간 · 오전, 오후, 저녁에 한 번씩 45분 동안 열려요.</p></div>';
     return;
   }
+  if(status==='soldout'){
+    body.innerHTML='<div class="shop-closed shop-soldout"><span class="closed-tag">SOLD OUT</span><strong>이번 장 완판!</strong><p>다음 장은 '+openingTime.format(nextSaleAt())+'에 열려요. <span>한국 시간</span></p></div>';
+    return;
+  }
   for(const button of $('shop-filters').querySelectorAll('button'))button.setAttribute('aria-pressed',String(button.dataset.filter===filter));
   const counts=inventory.stock;
-  const items=CLOTH.filter(item=>filter==='all'||item.group===filter);
-  const total=CLOTH.reduce((sum,item)=>sum+counts[item.id],0);
+  const rare=SCARVES.find(item=>item.id===inventory.rare);
+  const dailyLabel=$('daily-rare');
+  if(rare)dailyLabel.textContent='✦ 오늘의 레어 · '+rare.name+' · '+(counts[rare.id]?'하루 1장':'오늘 품절');
+  const items=(rare?[rare,...CLOTH]:CLOTH).filter(item=>filter==='all'||item.group===filter);
+  const total=MARKET_ITEMS.reduce((sum,item)=>sum+(counts[item.id]??0),0);
   $('shop-stock').textContent='남은 상품 '+total+'개';
   const active=body.contains(document.activeElement)?document.activeElement.dataset:null;
   const canTrade=!acting&&['online','solo'].includes(mode);
@@ -393,8 +431,22 @@ async function sendChat(){
   }
 }
 function line(){
-  lastLine=(lastLine+1+Math.floor(Math.random()*(LINES.length-1)))%LINES.length;
-  $('line').textContent='“'+LINES[lastLine]+'”';
+  const state=marketAvailability();
+  const bubble=$('vendor-speech');
+  const reopen=$('vendor-reopen');
+  bubble.dataset.state=state;
+  $('vendor-soldout').hidden=state!=='soldout';
+  reopen.hidden=state!=='soldout'&&state!=='waiting';
+  let message;
+  if(state==='soldout')message='이건 아닌 거 같아… 벌써 다 팔렸네! 다음 장에 다시 와요!';
+  else if(state==='waiting')message='지금은 장 준비 중이여. 다음 장에 다시 와요!';
+  else{
+    lastLine=(lastLine+1+Math.floor(Math.random()*(LINES.length-1)))%LINES.length;
+    message=LINES[lastLine];
+  }
+  $('line').textContent='“'+message+'”';
+  if(!reopen.hidden)reopen.textContent='다음 장 · '+openingTime.format(nextSaleAt());
+  bubble.setAttribute('aria-label',reopen.hidden?'상인의 다음 멘트 듣기':message+' '+reopen.textContent);
 }
 function chime(){
   if(muted)return;

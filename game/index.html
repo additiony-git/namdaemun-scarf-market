@@ -16,8 +16,9 @@
       <button id="scarf-marker" class="marker" data-trade="scarves"><span>✦</span> 스카프 매대</button>
       <button id="junk-marker" class="marker junk-marker" data-trade="junk"><span>✧</span> 잡화점 · 오픈 준비 중</button>
       <button id="vendor-speech" class="speech" type="button" aria-label="상인의 다음 멘트 듣기">
-        <span class="speech-speaker"><img id="vendor-avatar" src="./vendor.svg" width="22" height="22" alt=""><strong id="vendor-name">스카프 아저씨</strong><i data-icon="shuffle"></i></span>
+        <span class="speech-speaker"><img id="vendor-avatar" src="./vendor.svg" width="22" height="22" alt=""><strong id="vendor-name">스카프 아저씨</strong><span id="vendor-soldout" class="soldout-tag" hidden>완판!</span><i data-icon="shuffle"></i></span>
         <span id="line">“스카프는 천천히 골라요. 놓친 건 재고 탓 하고!”</span>
+        <span id="vendor-reopen" class="speech-reopen" hidden></span>
       </button>
     </div>
     <div id="world-error" class="world-error" hidden>
@@ -56,6 +57,7 @@
         <button class="glass icon-btn" id="close-shop" aria-label="상품 목록 닫기"><i data-icon="close"></i></button>
       </div>
       <div class="shop-summary" id="shop-summary"><span class="shop-live"><span></span><b id="sale-label">선착순 판매</b></span><b id="shop-stock">–</b></div>
+      <div class="daily-rare" id="daily-rare" hidden></div>
       <div class="shop-filters" id="shop-filters" aria-label="상품 종류" hidden>
         <button type="button" data-filter="all" aria-pressed="true">전체</button>
         <button type="button" data-filter="scarf" aria-pressed="false">스카프</button>

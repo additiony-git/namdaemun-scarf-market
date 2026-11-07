@@ -1,4 +1,4 @@
-import { AVATAR_OPTIONS, CLOTH, DEFAULT_LOOK, MAP, SCARVES, SHOP_RADIUS, SPAWN, STALLS, normalizeLook } from './catalog.mjs';
+import { AVATAR_OPTIONS, CLOTH, DEFAULT_LOOK, MAP, RARE_SCARVES, SCARVES, SHOP_RADIUS, SPAWN, STALLS, normalizeLook } from './catalog.mjs';
 
 const ground = -0.09;
 const hex = (h) => { const n = parseInt(h.replace('#', ''), 16); return [(n >> 16) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255]; };
@@ -58,14 +58,23 @@ class Mesh {
 
 function character(m, x,z,angle, coat, type, phase=0, look=DEFAULT_LOOK) {
   const t=T(x,0,z,angle), walk=Math.sin(phase)*.16, skin=type===2?'c98a69':'dda074';
+  const female=type===0&&look.character==='female';
+  const arm=female?.255:.28;
   m.disc(x,.012,z,.38,.25,'60463e');
   m.box(t,-.13,0,walk,.17,.34,.19,'3f3940');m.box(t,.13,0,-walk,.17,.34,.19,'3f3940');
   m.box(t,-.13,0,.045+walk,.2,.09,.26,'27282e');m.box(t,.13,0,.045-walk,.2,.09,.26,'27282e');
-  m.box(t,0,.31,0,.47,.48,.29,coat);
-  m.box(t,-.28,.39,-walk,.13,.37,.16,coat);m.box(t,.28,.39,walk,.13,.37,.16,coat);
-  m.box(t,-.28,.32,-walk,.115,.09,.14,skin);m.box(t,.28,.32,walk,.115,.09,.14,skin);
+  m.box(t,0,.31,0,female?.425:.47,.48,.29,coat);
+  m.box(t,-arm,.39,-walk,.13,.37,.16,coat);m.box(t,arm,.39,walk,.13,.37,.16,coat);
+  m.box(t,-arm,.32,-walk,.115,.09,.14,skin);m.box(t,arm,.32,walk,.115,.09,.14,skin);
   m.box(t,0,.76,0,.335,.34,.295,skin);m.box(t,0,.97,-.10,.35,.12,.125,'44302a');
   m.box(t,-.074,.902,.15,.033,.026,.014,'392927');m.box(t,.074,.902,.15,.033,.026,.014,'392927');
+  if(female){
+    m.box(t,0,.87,-.115,.366,.235,.12,'49332d');
+    m.box(t,-.156,.83,-.015,.064,.22,.20,'553932');
+    m.box(t,.156,.86,-.044,.065,.18,.16,'553932');
+    m.box(t,.07,.694,-.225,.125,.263,.135,'49332d');
+    m.box(t,.07,.901,-.214,.139,.042,.142,'be8d69');
+  }
   if (type===0) {
     dressVisitor(m,t,look,walk);
   } else {
@@ -168,6 +177,15 @@ function drawProducts(mesh, stock) {
     }
     // Reserve the same display position for every fabric even after a stack sells out.
     firstSlot+=item.count;
+  }
+  const rare=RARE_SCARVES.find(item=>stock[item.id]>0);
+  if(rare){
+    mesh.box(scarfCounter,2.20,.69,1.43,.34,.19,.27,'ba8044');
+    mesh.box(scarfCounter,2.20,.876,1.43,.37,.037,.28,'e1b86d');
+    mesh.box(scarfCounter,2.20,.912,1.43,.30,.07,.218,rare.color);
+    mesh.box(scarfCounter,2.20,.981,1.46,.25,.006,.035,rare.ink);
+    mesh.gem(scarfCounter,2.33,1.14,1.46,.062,'ffe6a3');
+    mesh.gem(scarfCounter,2.09,1.08,1.47,.033,'f1c266');
   }
 }
 
