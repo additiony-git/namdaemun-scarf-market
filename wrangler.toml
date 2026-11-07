@@ -5,7 +5,7 @@ workers_dev = true
 
 [vars]
 # Change to your GitHub Pages origin (no repository path or trailing slash).
-PAGES_ORIGIN = "https://YOUR-ACCOUNT.github.io"
+PAGES_ORIGIN = "https://additiony-git.github.io"
 
 [[durable_objects.bindings]]
 name = "MARKET_ROOM"
