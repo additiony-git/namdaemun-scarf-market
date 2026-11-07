@@ -4,14 +4,32 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#15110e">
-  <meta name="description" content="남대문 3D 골목에서 손님들과 대화하고 하루 세 번 열리는 스카프 장을 구경해 보세요.">
-  <title>남대문 스카프 상회</title>
+  <meta name="description" content="쓸모없는 소비시장. 남대문 3D 골목에서 하루 세 번 열리는 스카프 장을 구경해 보세요.">
+  <title>쓸모없는 소비시장</title>
   <link rel="icon" href="./mark.svg" type="image/svg+xml">
   <link rel="stylesheet" href="./style.css">
 </head>
 <body>
-  <main class="stage" id="stage" aria-label="남대문 시장 3D 게임">
-    <canvas id="world" aria-label="남대문 시장 3D 골목"></canvas>
+  <main class="stage" id="stage" aria-label="쓸모없는 소비시장" tabindex="-1">
+    <canvas id="world" aria-label="남대문 시장 3D 골목" aria-hidden="true"></canvas>
+    <section class="entrance" id="entrance" aria-labelledby="entrance-title">
+      <div class="entrance-inner">
+        <div class="entrance-brand">
+          <img src="./mark.svg" width="46" height="46" alt="">
+          <span><strong>남대문 스카프 상회</strong><small>NAMDAEMUN MARKET</small></span>
+        </div>
+        <div class="entrance-copy">
+          <p class="entrance-eyebrow"><span aria-hidden="true">✦</span> 남대문 골목 구경</p>
+          <h1 id="entrance-title"><span>쓸모없는</span> <span>소비시장</span></h1>
+          <p class="entrance-description">구경만 하러 왔다가, 오늘도 보물을 하나.</p>
+          <button type="button" class="enter-market" id="enter-market">
+            시장입장하기 <span aria-hidden="true"><i data-icon="arrow"></i></span>
+          </button>
+        </div>
+        <p class="entrance-location"><i data-icon="pin" aria-hidden="true"></i> 서울 남대문시장 <span aria-hidden="true">/</span> 스카프 골목</p>
+      </div>
+    </section>
+    <div id="market-ui" hidden>
     <div id="world-markers" class="markers">
       <button id="scarf-marker" class="marker" data-trade="scarves"><span>✦</span> 스카프 매대</button>
       <button id="junk-marker" class="marker junk-marker" data-trade="junk"><span>✧</span> 잡화점 · 오픈 준비 중</button>
@@ -104,6 +122,7 @@
         <button type="button" class="glass icon-btn" id="close-chat" aria-label="채팅 닫기"><i data-icon="close"></i></button>
       </form>
       <button class="glass chat-toggle" id="chat-toggle" type="button" aria-controls="chat-form" aria-expanded="false"><i data-icon="message"></i> 채팅 <kbd>↵</kbd></button>
+    </div>
     </div>
   </main>
   <dialog id="modal" aria-labelledby="modal-title">

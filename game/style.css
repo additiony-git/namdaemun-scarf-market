@@ -23,12 +23,81 @@ i[data-icon] { display: inline-flex; flex: none; width: 17px; height: 17px; vert
 i svg { width: 100%; height: 100%; }
 
 .stage { position: relative; isolation: isolate; width: 100%; height: 100%; height: 100dvh; overflow: hidden; }
+.stage:focus { outline: none; }
 canvas { position: absolute; inset: 0; display: block; width: 100%; height: 100%; }
 .stage::after {
   content: ""; position: absolute; inset: 0; z-index: 1; pointer-events: none;
   background: linear-gradient(180deg,#1e1008b8,transparent 24%,transparent 72%,#160e09be),
     radial-gradient(ellipse at center,transparent 60%,#26140953);
 }
+.entrance {
+  position: absolute; z-index: 5; inset: 0; overflow: auto;
+  background: linear-gradient(90deg, #1a100df9 0%, #20140fed 30%, #24150f76 56%, #27160f12 82%),
+    linear-gradient(180deg, #25170d1a, transparent 55%, #180e09c7);
+}
+.entrance-inner {
+  display: grid; grid-template-rows: auto 1fr auto; align-items: start; justify-items: start;
+  width: min(100%, 1440px); min-height: 100%; margin: auto;
+  padding: max(24px, env(safe-area-inset-top)) clamp(28px, 6vw, 88px) max(23px, env(safe-area-inset-bottom));
+}
+.entrance-brand {
+  display: flex; align-items: center; gap: 11px; padding: 8px 12px 8px 8px;
+  border: 1px solid #c298675c; border-radius: 11px; background: #271a13df;
+}
+.entrance-brand img { width: 38px; height: 38px; }
+.entrance-brand strong, .entrance-brand small { display: block; white-space: nowrap; }
+.entrance-brand strong { font-size: 15px; font-weight: 900; letter-spacing: -.055em; }
+.entrance-brand small { margin-top: 3px; color: #d9ae80; font-size: 8px; font-weight: 900; letter-spacing: .18em; }
+.entrance-copy { align-self: center; max-width: 100%; padding: 26px 0 34px; }
+.entrance-eyebrow {
+  display: flex; align-items: center; gap: 8px; margin: 0 0 14px;
+  color: #ebc18a; font-size: 12px; font-weight: 900; letter-spacing: .17em;
+}
+.entrance-eyebrow::after { content: ""; width: 45px; height: 1px; margin-left: 2px; background: #d6a26aa0; }
+.entrance h1 {
+  margin: 0; color: #fff0d3; font-size: clamp(58px, 8.65vw, 132px); font-weight: 950;
+  letter-spacing: -.08em; line-height: .98; text-shadow: 0 5px #432a1a, 0 13px 25px #150b06af;
+}
+.entrance h1 span { display: block; }
+.entrance h1 span + span { margin-top: 5px; color: #f6c66b; }
+.entrance-description { margin: 21px 0 22px; color: #efd7bd; font-size: clamp(14px, 1.65vw, 19px); font-weight: 700; line-height: 1.5; word-break: keep-all; }
+.enter-market {
+  display: inline-flex; align-items: center; justify-content: space-between; gap: 21px;
+  min-height: 56px; padding: 8px 10px 8px 17px; border: 1px solid #ffe2a1; border-radius: 9px;
+  color: #35200e; background: linear-gradient(180deg, #ffe6a1, #f3bd60);
+  box-shadow: 0 4px #a76435, 0 10px 25px #170d08a0; font-size: 17px; font-weight: 950;
+  transition: transform .16s ease, background .16s ease;
+}
+.enter-market:hover { transform: translateY(-2px); background: #ffe7a9; }
+.enter-market:active { transform: translateY(2px); }
+.enter-market span { display: grid; place-items: center; width: 30px; height: 30px; border-radius: 6px; background: #b775302f; }
+.entrance-location {
+  justify-self: end; display: flex; align-items: center; gap: 7px; margin: 0; padding: 6px 9px;
+  border: 1px solid #c298677d; border-radius: 6px; color: #ebd3b5; background: #231710d9; font-size: 11px; font-weight: 800;
+}
+.entrance-location i { width: 14px; height: 14px; color: var(--gold); }
+.entrance-location span { color: #bc986f; }
+@media (max-width: 640px) {
+  .entrance {
+    background: linear-gradient(180deg, #20140ff7 0%, #271911dc 33%, #26180e70 59%, #1c120e12 75%, #190f0bcf 100%);
+  }
+  .entrance-inner { padding: max(15px, env(safe-area-inset-top)) clamp(18px, 6vw, 33px) max(15px, env(safe-area-inset-bottom)); }
+  .entrance-brand img { width: 32px; height: 32px; }
+  .entrance-brand strong { font-size: 13px; }
+  .entrance-copy { align-self: start; padding: 30px 0 32px; }
+  .entrance-eyebrow { margin-bottom: 11px; font-size: 10px; }
+  .entrance h1 { font-size: clamp(49px, 13.5vw, 78px); }
+  .entrance-description { margin: 15px 0 17px; font-size: 14px; }
+  .enter-market { min-height: 48px; font-size: 15px; }
+}
+@media (min-width: 641px) and (max-height: 515px) {
+  .entrance-inner { padding-top: 14px; padding-bottom: 14px; }
+  .entrance-copy { padding: 16px 0 18px; }
+  .entrance h1 { font-size: clamp(50px, 15vh, 76px); }
+  .entrance-description { margin: 12px 0 14px; }
+  .enter-market { min-height: 46px; }
+}
+@media (prefers-reduced-motion: reduce) { .enter-market { transition: none; } }
 .topbar, .hud, .stage-bottom { position: absolute; z-index: 4; pointer-events: none; }
 .topbar > *, .stage-bottom > * { pointer-events: auto; }
 .topbar {

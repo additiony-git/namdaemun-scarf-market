@@ -44,6 +44,7 @@ function read(key){try{return localStorage.getItem(key);}catch{return temporary.
 function write(key,value){temporary.set(key,value);try{localStorage.setItem(key,value);}catch{/* keep this session playable */}}
 const blank = () => ({ id:'solo', name:'새내기 손님', cash:START_MONEY, collected:0, rank:null });
 let token=read(tokenKey), model, world, mode=endpoint?'loading':'solo', modal='', busy=false, timeOffset=0, misses=0, lastPos='', syncTimer;
+let enteredMarket=false;
 let muted=true, audioCtx, toastTimer, acting=false;
 let profileTab='avatar', profileFeedback='';
 let nearby='', shop='', shopSignature='', inventory, feed, retryFeedAt=0, transitionRequested=0;
@@ -648,7 +649,7 @@ $('close-chat').onclick=()=>setChatOpen(false);
 const dirMap={w:'w',a:'a',s:'s',d:'d',ArrowUp:'w',ArrowDown:'s',ArrowLeft:'a',ArrowRight:'d'};
 function direction(key){return dirMap[key]??dirMap[key.toLowerCase()];}
 document.addEventListener('keydown',e=>{
-  if(e.isComposing)return;
+  if(!enteredMarket||e.isComposing)return;
   if(e.key==='Escape'&&!$('chat-form').hidden&&!dialog.open){e.preventDefault();setChatOpen(false);return;}
   if(dialog.open||e.ctrlKey||e.metaKey||e.altKey||e.target.matches('input, textarea'))return;
   if(e.key==='Enter'&&!e.repeat&&!e.target.closest('button, a')){e.preventDefault();setChatOpen(true);return;}
@@ -660,6 +661,7 @@ document.addEventListener('keydown',e=>{
 document.addEventListener('keyup',e=>{const dir=direction(e.key);if(dir)world?.dir.delete(dir);});
 window.addEventListener('blur',()=>world?.dir.clear());
 document.addEventListener('visibilitychange',()=>{
+  if(!enteredMarket)return;
   world?.dir.clear();
   if(document.hidden){
     const socket=feed;
@@ -689,11 +691,22 @@ try{
     if(type==='scarves')line();
     if(mode==='online'&&feed?.readyState!==WebSocket.OPEN)queue(0);
   });
+  world.setStock({...STOCK,[dailyRare(Date.now()).id]:1});
   $('world').addEventListener('webglcontextlost',e=>{e.preventDefault();showWorldError();});
   $('world').addEventListener('webglcontextrestored',()=>location.reload());
 }catch(error){
   console.warn('3D 시장 화면:',error.message);showWorldError();
 }
-if(endpoint)void connect();else setModel(demo());
-setInterval(tick,500);
-setInterval(()=>{if(!dialog.open&&!document.hidden)line();},15000);
+$('enter-market').onclick=()=>{
+  if(enteredMarket)return;
+  enteredMarket=true;
+  $('entrance').hidden=true;
+  $('market-ui').hidden=false;
+  $('world').removeAttribute('aria-hidden');
+  $('stage').focus({preventScroll:true});
+  world?.enterMarket();
+  world?.setStock(closedStock);
+  if(endpoint)void connect();else setModel(demo());
+  setInterval(tick,500);
+  setInterval(()=>{if(!dialog.open&&!document.hidden)line();},15000);
+};

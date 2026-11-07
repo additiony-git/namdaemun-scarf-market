@@ -386,6 +386,7 @@ export function createWorld(canvas, markers, onNearby) {
   });
   const self={...SPAWN,a:.25,look:DEFAULT_LOOK};
   let near='', shopFocused=false, last=0, walk=0, width=1,height=1;
+  let entranceShot=true, entranceRendered=false, snapCamera=false;
   let cam=[.20,1.07,.75], sx=.11,sy=.17;
   let peers = new Map();
   let viewerId;
@@ -412,11 +413,18 @@ export function createWorld(canvas, markers, onNearby) {
   function frame(ms){
     const dt=Math.min(.044,(ms-(last||ms))/1000);last=ms;
     const resizeW=canvas.clientWidth,resizeH=canvas.clientHeight;
+    let resized=resizeW!==width||resizeH!==height;
     if(resizeW&&resizeH){
       width=resizeW;height=resizeH;
       const dpr=Math.min(devicePixelRatio||1,1.65);
-      if(canvas.width!==Math.floor(width*dpr)||canvas.height!==Math.floor(height*dpr)){canvas.width=Math.floor(width*dpr);canvas.height=Math.floor(height*dpr);gl.viewport(0,0,canvas.width,canvas.height);}
+      if(canvas.width!==Math.floor(width*dpr)||canvas.height!==Math.floor(height*dpr)){
+        canvas.width=Math.floor(width*dpr);
+        canvas.height=Math.floor(height*dpr);
+        gl.viewport(0,0,canvas.width,canvas.height);
+        resized=true;
+      }
     }
+    if(entranceShot&&entranceRendered&&!resized){requestAnimationFrame(frame);return;}
     const dx=Number(dir.has('d'))-Number(dir.has('a')), dz=Number(dir.has('s'))-Number(dir.has('w'));
     motion=Boolean(dx||dz);
     if(motion){
@@ -432,13 +440,18 @@ export function createWorld(canvas, markers, onNearby) {
     const nearest=scarfDistance<junkDistance?'scarves':'junk';
     const distance=Math.min(scarfDistance,junkDistance);
     const current=distance<=SHOP_RADIUS+(near===nearest?.24:0)?nearest:'';
-    if(current!==near){near=current;onNearby(current);}
-    const follow=1-Math.exp(-dt*4);
+    if(!entranceShot&&current!==near){near=current;onNearby(current);}
+    const follow=snapCamera?1:1-Math.exp(-dt*4);
+    snapCamera=false;
     const compact=width<=640;
     const stall=shopFocused?STALLS[near]:null;
-    cam[0]=fade(cam[0],stall?stall.x+(compact?1.05:2):.2+(self.x-SPAWN.x)*(compact?.72:.26),follow);
-    cam[1]=fade(cam[1],compact&&stall?-2.05:1.02,follow);
-    cam[2]=fade(cam[2],stall?stall.z+(compact?3.3:1.9):.8+(self.z-SPAWN.z)*.25,follow);
+    if(entranceShot){
+      cam=compact?[-1.6,2.85,.62]:[-4.45,1.24,.38];
+    }else{
+      cam[0]=fade(cam[0],stall?stall.x+(compact?1.05:2):.2+(self.x-SPAWN.x)*(compact?.72:.26),follow);
+      cam[1]=fade(cam[1],compact&&stall?-2.05:1.02,follow);
+      cam[2]=fade(cam[2],stall?stall.z+(compact?3.3:1.9):.8+(self.z-SPAWN.z)*.25,follow);
+    }
     const ratio=width/height, span=Math.max(8.9, (compact?10.1:14.2)/ratio);
     sy=2/span;sx=sy/ratio;
     gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT);
@@ -449,15 +462,18 @@ export function createWorld(canvas, markers, onNearby) {
       p.x=fade(p.x,p.tx,follow);p.z=fade(p.z,p.tz,follow);
       character(dynamic,p.x,p.z,p.a,AVATAR_OPTIONS.coat[p.look.coat].color,0,travel>.025?p.walk:0,p.look);
     }
-    dynamic.disc(self.x,.014,self.z,.44,.31,'f1bb57');
-    dynamic.disc(self.x,.016,self.z,.36,.24,'805d45');
-    character(dynamic,self.x,self.z,self.a,AVATAR_OPTIONS.coat[self.look.coat].color,0,motion?walk:0,self.look);
+    if(!entranceShot){
+      dynamic.disc(self.x,.014,self.z,.44,.31,'f1bb57');
+      dynamic.disc(self.x,.016,self.z,.36,.24,'805d45');
+      character(dynamic,self.x,self.z,self.a,AVATAR_OPTIONS.coat[self.look.coat].color,0,motion?walk:0,self.look);
+    }
     setView(programs[0]);draw(programs[0],staticMesh,world.data.length/6,6);
     draw(programs[0],productMesh,productVertices,6);
     gl.bindBuffer(gl.ARRAY_BUFFER,dynamicMesh);gl.bufferData(gl.ARRAY_BUFFER,new Float32Array(dynamic.data),gl.DYNAMIC_DRAW);
     draw(programs[0],dynamicMesh,dynamic.data.length/6,6);
     setView(programs[1]);
     for(const s of lettering){gl.bindTexture(gl.TEXTURE_2D,s.tex);draw(programs[1],s.b,6,5);}
+    if(entranceShot){entranceRendered=true;requestAnimationFrame(frame);return;}
     for(const [key,p] of Object.entries({ scarves:[-1.67,2.94,-1.98], junk:[4.36,2.75,.95] })){
       const [x,y]=project(...p);markers[key].style.left=x+'px';markers[key].style.top=y+'px';
       markers[key].hidden=x<35||x>width-35||y<52||y>height-60;
@@ -491,6 +507,10 @@ export function createWorld(canvas, markers, onNearby) {
   requestAnimationFrame(frame);
   return {
     dir, position:()=>({x:+self.x.toFixed(2),z:+self.z.toFixed(2)}), moving:()=>motion,
+    enterMarket(){
+      entranceShot=false;
+      snapCamera=matchMedia('(prefers-reduced-motion: reduce)').matches;
+    },
     focusShop(active){shopFocused=active;},
     setStock,
     showChat(speech, remaining){
