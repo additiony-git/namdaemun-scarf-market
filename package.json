@@ -1,0 +1,13 @@
+{
+  "name": "namdaemun-scarf-market",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "engines": {"node": ">=22.13"},
+  "scripts": {
+    "dev": "node server/local.mjs",
+    "test": "node --test tests/*.test.mjs",
+    "build": "node scripts/build.mjs",
+    "offline": "node scripts/standalone.mjs"
+  }
+}

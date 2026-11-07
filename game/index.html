@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#15110e">
+  <meta name="description" content="스카프를 팔고 쓸모없는 보물을 모으는 남대문 3D 시장 게임">
+  <title>남대문 스카프 상회</title>
+  <link rel="icon" href="./mark.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="./style.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="topinner">
+      <a class="brand" href="./" aria-label="남대문 스카프 상회 홈">
+        <img src="./mark.svg" width="42" height="42" alt="">
+        <span><strong>남대문 스카프 상회</strong><small>NAMDAEMUN SCARF CLUB</small></span>
+      </a>
+      <nav aria-label="게임 메뉴">
+        <button class="navitem current" id="market-nav"><i data-icon="store"></i><span>시장 골목</span></button>
+        <button class="navitem" id="bag-nav"><i data-icon="bag"></i><span>내 장바구니</span></button>
+        <button class="navitem" id="rank-nav"><i data-icon="trophy"></i><span>랭킹</span></button>
+      </nav>
+      <button class="profile" id="profile" title="닉네임 변경"><span class="profile-face"><i data-icon="user"></i></span><span id="nickname">새내기 상인</span><i class="chevron" data-icon="down"></i></button>
+    </div>
+  </header>
+  <main>
+    <section class="intro">
+      <div>
+        <div class="kicker"><span></span> NAMDAEMUN · SEOUL</div>
+        <h1>스카프 골목<span>.</span></h1>
+        <p>스카프를 팔고, 세상에서 가장 쓸모없는 보물을 모아보세요.</p>
+      </div>
+      <div class="live" id="live" title="현재 접속 상태"><span class="lamp"></span><span id="live-mode">장터 연결 중</span><span class="divider"></span><i data-icon="users"></i><b id="online">–</b></div>
+    </section>
+    <div class="layout">
+      <section class="play-column" aria-label="3D 시장 게임">
+        <div class="stage" id="stage">
+          <canvas id="world" aria-label="남대문 시장 3D 골목"></canvas>
+          <div id="world-error" class="world-error" hidden>3D 화면을 표시할 수 없어요. 아래 거래 버튼은 계속 사용할 수 있습니다.</div>
+          <div class="stage-top">
+            <div class="location"><i data-icon="pin"></i> 남대문시장 <span> / </span> 스카프 골목</div>
+            <div class="stage-tools">
+              <button id="sound" class="glass icon-btn" title="거래 소리" aria-label="거래 소리" aria-pressed="false"><i data-icon="mute"></i></button>
+              <button id="zoom" class="glass icon-btn" title="시야 전환" aria-label="시야 전환" aria-pressed="false"><i data-icon="expand"></i></button>
+            </div>
+          </div>
+          <div id="world-markers" class="markers">
+            <button id="scarf-marker" class="marker scarf-marker" data-trade="scarves"><span>✦</span> 스카프 매대</button>
+            <button id="junk-marker" class="marker junk-marker" data-trade="junk"><span>✧</span> 잡화점</button>
+          </div>
+          <div class="stage-bottom">
+            <div class="keys"><kbd>W</kbd><div><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd></div><span>이동</span><kbd class="key-e">E</kbd><span>거래</span></div>
+            <div class="touch" aria-label="방향키"><button data-dir="w" aria-label="위로">▲</button><button data-dir="a" aria-label="왼쪽">◀</button><button data-dir="s" aria-label="아래로">▼</button><button data-dir="d" aria-label="오른쪽">▶</button></div>
+            <button id="interact" class="glass interact" data-trade="scarves"><kbd>E</kbd><span>스카프 매대 거래하기</span><i data-icon="arrow"></i></button>
+          </div>
+        </div>
+        <div class="vendor">
+          <div class="vendor-avatar"><img src="./vendor.svg" alt="" width="52" height="52"></div>
+          <div class="vendor-copy"><div><strong>스카프 아저씨</strong><span>골목 상인</span></div><p id="line">“스카프는 천천히 골라요. 놓친 건 재고 탓 하고!”</p></div>
+          <button id="next-line" class="icon-btn" aria-label="다른 멘트 듣기" title="다른 멘트 듣기"><i data-icon="shuffle"></i></button>
+        </div>
+        <div class="actions">
+          <button class="action" data-trade="scarves"><span class="action-icon coral"><i data-icon="scarf"></i></span><span><strong>스카프 팔기</strong><small>손수건도 함께 판매해요</small></span><i data-icon="arrow"></i></button>
+          <button class="action" data-trade="junk"><span class="action-icon violet"><i data-icon="gift"></i></span><span><strong>잡화점 구경하기</strong><small>쓸데없는 물건을 모아요</small></span><i data-icon="arrow"></i></button>
+        </div>
+      </section>
+      <aside class="side" aria-label="장터 현황">
+        <section class="panel wallet">
+          <div class="panel-title"><span class="title-icon yellow"><i data-icon="wallet"></i></span><h2>내 장사 현황</h2></div>
+          <div class="balance"><span>보유 장터돈</span><div><i data-icon="coin"></i> <b id="balance">2,000</b> <small>원</small></div></div>
+          <div class="stats"><div><span>판매한 물건</span><b id="sold">0<small> 개</small></b></div><div><span>모은 잡화</span><b id="collected">0<small> 개</small></b></div></div>
+        </section>
+        <section class="panel stock">
+          <div class="panel-title"><span class="title-icon coral"><i data-icon="clock"></i></span><h2>한정 재고</h2><span class="mini-badge"><span></span> 선착순</span></div>
+          <div class="stock-copy"><span>이번 회차 남은 수량</span><b id="stock-n">–</b></div>
+          <div class="meter" role="progressbar" aria-label="남은 재고" aria-valuemin="0" aria-valuemax="100" aria-valuenow="100"><div id="meter"></div></div>
+          <div class="next"><i data-icon="clock"></i><span>다음 입고까지</span><strong id="countdown">--:--</strong></div>
+        </section>
+        <section class="panel ranking" id="rank-panel">
+          <div class="panel-title"><span class="title-icon yellow"><i data-icon="trophy"></i></span><h2>쓸모없는 수집왕</h2></div>
+          <p class="rank-sub">모은 잡화 수 · 동점이면 먼저 달성한 순</p>
+          <ol class="rank-list" id="rank-list"></ol>
+          <button id="all-ranks" class="all-ranks">전체 랭킹 보기 <i data-icon="arrow"></i></button>
+        </section>
+      </aside>
+    </div>
+    <footer><span>✦ &nbsp; 남대문 스카프 상회</span><span>남대문시장 모티브의 창작 게임 · 장터돈은 게임 속 화폐입니다.</span></footer>
+  </main>
+  <dialog id="modal" aria-labelledby="modal-title">
+    <div class="modal-head"><div><div id="modal-kicker" class="kicker"></div><h2 id="modal-title"></h2></div><button class="icon-btn" id="close-modal" aria-label="닫기"><i data-icon="close"></i></button></div>
+    <div id="modal-body"></div>
+  </dialog>
+  <div id="toast" role="status" aria-live="polite"></div>
+  <script type="module" src="./app.mjs"></script>
+</body>
+</html>

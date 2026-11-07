@@ -1,0 +1,16 @@
+name = "namdaemun-scarf-market"
+main = "server/worker.mjs"
+compatibility_date = "2026-01-01"
+workers_dev = true
+
+[vars]
+# Change to your GitHub Pages origin (no repository path or trailing slash).
+PAGES_ORIGIN = "https://YOUR-ACCOUNT.github.io"
+
+[[durable_objects.bindings]]
+name = "MARKET_ROOM"
+class_name = "MarketRoom"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["MarketRoom"]
