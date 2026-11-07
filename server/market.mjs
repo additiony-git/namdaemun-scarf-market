@@ -1,4 +1,4 @@
-import { CHAT_LIMIT, CHAT_MS, CLOTH, JUNK, MAP, SPAWN, START_MONEY, STOCK, chatText, fit, marketSession, niceName } from '../game/catalog.mjs';
+import { CHAT_LIMIT, CHAT_MS, CLOTH, JUNK, MAP, SPAWN, START_MONEY, STOCK, chatText, fit, marketSession, niceName, normalizeLook } from '../game/catalog.mjs';
 
 const defaultName = '새내기 손님';
 const presenceMs = 30_000;
@@ -18,6 +18,7 @@ export class Market {
     query('CREATE TABLE IF NOT EXISTS cloth_sales (round INTEGER NOT NULL, item TEXT NOT NULL, qty INTEGER NOT NULL, PRIMARY KEY(round, item))');
     query('CREATE TABLE IF NOT EXISTS basket (player TEXT NOT NULL, item TEXT NOT NULL, qty INTEGER NOT NULL, updated INTEGER NOT NULL, PRIMARY KEY(player, item))');
     query('CREATE TABLE IF NOT EXISTS allowances (player TEXT PRIMARY KEY, round INTEGER NOT NULL)');
+    query('CREATE TABLE IF NOT EXISTS looks (player TEXT PRIMARY KEY, hat TEXT NOT NULL, coat TEXT NOT NULL, bag TEXT NOT NULL, scarf TEXT NOT NULL)');
   }
   get(sql, ...args) { return this.query(sql, ...args)[0]; }
   prune(now) {
@@ -70,12 +71,25 @@ export class Market {
       const z = fit(pos?.z, MAP.minZ, MAP.maxZ, previous.z);
       let event;
       let speech = previous.speech;
-      if (action === 'rename') {
+      let look = normalizeLook(this.get('SELECT hat, coat, bag, scarf FROM looks WHERE player = ?', player.id));
+      if (action === 'rename' || action === 'profile') {
         const name = niceName(typeof body.name === 'string' ? body.name.slice(0, 120) : '');
         if (!name) return problem('한 글자 이상 입력해 주세요.');
+        if (action === 'profile') {
+          const selected = normalizeLook(body.look);
+          if (Object.entries(selected).some(([key, value]) => body.look?.[key] !== value)) {
+            return problem('꾸미기 목록에 있는 아이템을 골라 주세요.');
+          }
+          if (!['classic','none'].includes(selected.scarf) && !this.get('SELECT qty FROM basket WHERE player = ? AND item = ? AND qty > 0', player.id, selected.scarf)) {
+            return problem('장바구니에 있는 스카프만 착용할 수 있어요.', 409);
+          }
+          this.query('INSERT INTO looks VALUES (?, ?, ?, ?, ?) ON CONFLICT(player) DO UPDATE SET hat = excluded.hat, coat = excluded.coat, bag = excluded.bag, scarf = excluded.scarf',
+            player.id, selected.hat, selected.coat, selected.bag, selected.scarf);
+          look = selected;
+        }
         this.query('UPDATE players SET name = ? WHERE id = ?', name, player.id);
         player.name = name;
-        event = '간판에 새 닉네임을 걸었어요.';
+        event = action === 'profile' ? '프로필을 저장했어요.' : '간판에 새 닉네임을 걸었어요.';
       } else if (action === 'buy') {
         const item = CLOTH.find(entry => entry.id === body.item);
         if (!item) return JUNK.some(entry => entry.id === body.item)
@@ -101,16 +115,16 @@ export class Market {
       } else if (action !== 'join' && action !== 'sync') {
         return problem('알 수 없는 거래입니다.');
       }
-      this.people.set(player.id, { id: player.id, name: player.name, x, z, seen: now, speech });
+      this.people.set(player.id, { id: player.id, name: player.name, x, z, seen: now, speech, look });
       const ranking = this.query('SELECT id, name, collected FROM players WHERE collected > 0 ORDER BY collected DESC, reached ASC, id ASC LIMIT 30');
       const myRank = player.collected ? this.get('SELECT COUNT(*) + 1 AS rank FROM players WHERE collected > ? OR (collected = ? AND reached < ?)', player.collected, player.collected, player.reached).rank : null;
       return {
         token: issued, event, speech: action === 'chat' ? speech : undefined, now, ...this.inventory(now, session),
-        player: { id: player.id, name: player.name, cash: player.cash, sold: player.sold, collected: player.collected, rank: myRank },
+        player: { id: player.id, name: player.name, cash: player.cash, sold: player.sold, collected: player.collected, rank: myRank, look },
         basket: this.query('SELECT item, qty, updated FROM basket WHERE player = ? ORDER BY updated DESC, item', player.id),
         ranking, online: this.people.size,
-        peers: [...this.people.values()].filter(p => p.id !== player.id).slice(0, 35).map(({ id, name, x, z, speech }) =>
-          ({ id, name, x, z, speech: speech?.expiresAt > now ? speech : undefined })),
+        peers: [...this.people.values()].filter(p => p.id !== player.id).slice(0, 35).map(({ id, name, x, z, speech, look }) =>
+          ({ id, name, x, z, look, speech: speech?.expiresAt > now ? speech : undefined })),
       };
     });
   }

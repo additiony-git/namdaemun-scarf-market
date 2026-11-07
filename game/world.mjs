@@ -1,4 +1,4 @@
-import { CLOTH, MAP, SHOP_RADIUS, SPAWN, STALLS } from './catalog.mjs';
+import { AVATAR_OPTIONS, CLOTH, DEFAULT_LOOK, MAP, SCARVES, SHOP_RADIUS, SPAWN, STALLS, normalizeLook } from './catalog.mjs';
 
 const ground = -0.09;
 const hex = (h) => { const n = parseInt(h.replace('#', ''), 16); return [(n >> 16) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255]; };
@@ -56,7 +56,7 @@ class Mesh {
   }
 }
 
-function character(m, x,z,angle, coat, type, phase=0) {
+function character(m, x,z,angle, coat, type, phase=0, look=DEFAULT_LOOK) {
   const t=T(x,0,z,angle), walk=Math.sin(phase)*.16, skin=type===2?'c98a69':'dda074';
   m.disc(x,.012,z,.38,.25,'60463e');
   m.box(t,-.13,0,walk,.17,.34,.19,'3f3940');m.box(t,.13,0,-walk,.17,.34,.19,'3f3940');
@@ -66,10 +66,80 @@ function character(m, x,z,angle, coat, type, phase=0) {
   m.box(t,-.28,.32,-walk,.115,.09,.14,skin);m.box(t,.28,.32,walk,.115,.09,.14,skin);
   m.box(t,0,.76,0,.335,.34,.295,skin);m.box(t,0,.97,-.10,.35,.12,.125,'44302a');
   m.box(t,-.074,.902,.15,.033,.026,.014,'392927');m.box(t,.074,.902,.15,.033,.026,.014,'392927');
-  m.box(t,0,1.025,0,.39,.135,.335,type===1?'332e2c':type===2?'9f5956':'546374');
-  m.box(t,0,1.019,.10,.425,.045,.36,type===1?'3b3332':type===2?'ba7769':'647a87');
-  if(type===1||type===0){m.box(t,0,.723,.05,.44,.092,.33,'da6849');m.box(t,.12,.48,.174,.12,.26,.032,'f18862');}
-  if(type===0){m.box(t,0,.37,-.218,.35,.38,.19,'deb268');m.box(t,0,.47,-.32,.27,.17,.018,'9d6f45');}
+  if (type===0) {
+    dressVisitor(m,t,look,walk);
+  } else {
+    m.box(t,0,1.025,0,.39,.135,.335,type===1?'332e2c':'9f5956');
+    m.box(t,0,1.019,.10,.425,.045,.36,type===1?'3b3332':'ba7769');
+    if(type===1){m.box(t,0,.723,.05,.44,.092,.33,'da6849');m.box(t,.12,.48,.174,.12,.26,.032,'f18862');}
+  }
+}
+
+function dressVisitor(mesh, transform, look, walk) {
+  const hat=AVATAR_OPTIONS.hat[look.hat];
+  if(look.hat==='none') {
+    mesh.box(transform,0,1.058,-.025,.35,.067,.31,'44302a');
+  } else {
+    mesh.box(transform,0,1.025,0,.39,look.hat==='knit'?.158:.135,.335,hat.color);
+    if(look.hat==='cap')mesh.box(transform,0,1.019,.10,.425,.045,.36,'647a87');
+    if(look.hat==='bucket')mesh.box(transform,0,1.011,0,.49,.045,.435,'d5b681');
+    if(look.hat==='knit'){
+      mesh.box(transform,0,1.027,0,.407,.054,.351,'713733');
+      mesh.gem(transform,0,1.205,0,.054,'ca6d55');
+    }
+  }
+  if(look.scarf!=='none'){
+    const scarf=SCARVES.find(item=>item.id===look.scarf);
+    mesh.box(transform,0,.723,.05,.44,.092,.33,scarf?.color??'da6849');
+    mesh.box(transform,.12,.48,.174,.12,.26,.032,scarf?.color??'f18862');
+    if(scarf)for(const y of [.51,.57,.66])mesh.box(transform,.12,y,.193,.092,.019,.014,scarf.ink);
+  }
+  const bag=AVATAR_OPTIONS.bag[look.bag];
+  if(look.bag==='backpack'){
+    mesh.box(transform,0,.37,-.218,.35,.38,.19,bag.color);
+    mesh.box(transform,0,.47,-.32,.27,.17,.018,'9d6f45');
+  }else if(look.bag==='tote'){
+    mesh.box(transform,.33,.087,walk+.065,.245,.215,.19,bag.color);
+    mesh.box(transform,.33,.105,walk+.165,.165,.116,.017,'bb835f');
+    for(const x of [.25,.41])mesh.box(transform,x,.298,walk+.062,.035,.077,.045,'ac805f');
+  }else if(look.bag==='crossbody'){
+    mesh.segment(transform(-.17,.764,.156),transform(.22,.426,.184),.042,'593e35');
+    mesh.box(transform,.222,.31,.167,.22,.176,.105,bag.color);
+    mesh.box(transform,.222,.383,.228,.179,.054,.029,'bc8a69');
+  }
+}
+
+export function drawAvatarPreview(canvas, appearance, turned=false) {
+  const ctx=canvas.getContext('2d');
+  if(!ctx)return;
+  const look=normalizeLook(appearance);
+  const mesh=new Mesh();
+  character(mesh,0,0,turned?2.58:-.36,AVATAR_OPTIONS.coat[look.coat].color,0,0,look);
+  const triangles=[];
+  for(let i=0;i<mesh.data.length;i+=18){
+    const points=[0,6,12].map(offset=>mesh.data.slice(i+offset,i+offset+3));
+    if(dot(cross(sub(points[1],points[0]),sub(points[2],points[0])),eye)<=0)continue;
+    const depth=points.reduce((sum,point)=>sum+dot(point,eye),0);
+    const color=mesh.data.slice(i+3,i+6).map(value=>Math.min(255,Math.round(value*255)));
+    triangles.push({points,depth,color});
+  }
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+  const center=canvas.width/2;
+  const base=canvas.height*.86;
+  const scale=canvas.height*.68;
+  for(const {points,color} of triangles.sort((a,b)=>a.depth-b.depth)){
+    ctx.fillStyle=ctx.strokeStyle='rgb('+color.join(',')+')';
+    ctx.lineWidth=.65;
+    ctx.beginPath();
+    for(const [index,point] of points.entries()){
+      const x=center+dot(point,right)*scale,y=base-dot(point,up)*scale;
+      if(index===0)ctx.moveTo(x,y);
+      else ctx.lineTo(x,y);
+    }
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+  }
 }
 
 function drawProducts(mesh, stock) {
@@ -296,7 +366,7 @@ export function createWorld(canvas, markers, onNearby) {
     const a=pos(-.5,-.5,0,1),b=pos(.5,-.5,1,1),c=pos(.5,.5,1,0),d=pos(-.5,.5,0,0);
     return { b:buffer([...a,...b,...c,...a,...c,...d]), tex:texture(gl,s) };
   });
-  const self={...SPAWN,a:.25};
+  const self={...SPAWN,a:.25,look:DEFAULT_LOOK};
   let near='', shopFocused=false, last=0, walk=0, width=1,height=1;
   let cam=[.20,1.07,.75], sx=.11,sy=.17;
   let peers = new Map();
@@ -359,11 +429,11 @@ export function createWorld(canvas, markers, onNearby) {
       const travel=Math.hypot(p.tx-p.x,p.tz-p.z);
       if(travel>.025){p.a=Math.atan2(p.tx-p.x,p.tz-p.z);p.walk+=dt*12;}
       p.x=fade(p.x,p.tx,follow);p.z=fade(p.z,p.tz,follow);
-      character(dynamic,p.x,p.z,p.a,p.color,2,travel>.025?p.walk:0);
+      character(dynamic,p.x,p.z,p.a,AVATAR_OPTIONS.coat[p.look.coat].color,0,travel>.025?p.walk:0,p.look);
     }
     dynamic.disc(self.x,.014,self.z,.44,.31,'f1bb57');
     dynamic.disc(self.x,.016,self.z,.36,.24,'805d45');
-    character(dynamic,self.x,self.z,self.a,'638687',0,motion?walk:0);
+    character(dynamic,self.x,self.z,self.a,AVATAR_OPTIONS.coat[self.look.coat].color,0,motion?walk:0,self.look);
     setView(programs[0]);draw(programs[0],staticMesh,world.data.length/6,6);
     draw(programs[0],productMesh,productVertices,6);
     gl.bindBuffer(gl.ARRAY_BUFFER,dynamicMesh);gl.bufferData(gl.ARRAY_BUFFER,new Float32Array(dynamic.data),gl.DYNAMIC_DRAW);
@@ -419,17 +489,17 @@ export function createWorld(canvas, markers, onNearby) {
       node.textContent=speech.text;
       speeches.set(id,{node,sentAt:speech.sentAt,until:performance.now()+remaining});
     },
-    setPeers(list, selfId){
+    setPeers(list, selfId, look){
       viewerId=selfId;
+      self.look=normalizeLook(look);
       const current=new Map();
       for(const p of list){
         const old=peers.get(p.id);
-        const seed=[...p.id].reduce((n,c)=>n+c.charCodeAt(0),0);
         const label=old?.label??document.createElement('span');
         if(!old){label.className='peer-label';labels.append(label);}
         if(label.textContent!==p.name)label.textContent=p.name;
-        const s=old??{x:p.x,z:p.z,a:.15,walk:0,color:cloths[seed%cloths.length],label};
-        s.tx=p.x;s.tz=p.z;current.set(p.id,s);
+        const s=old??{x:p.x,z:p.z,a:.15,walk:0,label};
+        s.tx=p.x;s.tz=p.z;s.look=normalizeLook(p.look);current.set(p.id,s);
       }
       for(const [id,p] of peers)if(!current.has(id))p.label.remove();
       peers=current;

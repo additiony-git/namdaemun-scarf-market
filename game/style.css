@@ -191,9 +191,26 @@ dialog::backdrop { background: #130e0bc9; backdrop-filter: blur(3px); }
 .rank-name small { margin-left: 4px; color: var(--gold); }
 .rank-num { color: var(--gold); font-weight: 900; white-space: nowrap; }
 .rank-num small { color: var(--muted); font-size: 10px; font-weight: 500; }
-.profile-form label { display: block; margin-bottom: 6px; color: var(--muted); font-size: 12px; }
-.profile-form > div { display: flex; gap: 8px; }
-.profile-form input { width: 100%; min-width: 0; padding: 8px; border: 1px solid #684833; border-radius: 8px; background: #1c1512; color: var(--text); }
+.profile-tabs { display: flex; gap: 6px; margin: 1px 0 13px; }
+.profile-tabs button { display: flex; align-items: center; gap: 5px; padding: 7px 9px; border: 1px solid #644838; border-radius: 7px; color: var(--muted); background: #39271d; font-size: 12px; font-weight: 800; }
+.profile-tabs button[aria-pressed=true] { color: #ffe6ac; border-color: #bd8a54; background: #574029; }
+.profile-tabs i { width: 14px; height: 14px; }
+.profile-form fieldset { min-width: 0; padding: 0; margin: 0; border: 0; }
+.profile-editor { display: grid; grid-template-columns: minmax(100px, .78fr) minmax(0, 1fr); gap: 12px; }
+.avatar-card {
+  display: grid; justify-items: center; align-content: center; gap: 3px; min-height: 0; padding: 5px 6px 8px;
+  border: 1px solid #84603f; border-radius: 10px; background: radial-gradient(ellipse at 52% 44%, #704d35, #32241b 76%);
+}
+.avatar-card canvas { position: static; display: block; width: 100%; height: auto; max-width: 190px; }
+#rotate-avatar { display: flex; align-items: center; gap: 4px; padding: 5px 6px; font-size: 10px; white-space: nowrap; }
+#rotate-avatar i { width: 13px; height: 13px; }
+.profile-choices { display: grid; grid-template-columns: minmax(0, 1fr); align-content: start; gap: 3px; }
+.profile-choices label { margin-top: 3px; color: var(--muted); font-size: 11px; }
+.profile-choices input, .profile-choices select { width: 100%; min-width: 0; padding: 6px 7px; border: 1px solid #684833; border-radius: 6px; background: #1c1512; color: var(--text); font: inherit; font-size: 13px; }
+.profile-choices select:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
+.wardrobe-note { margin: 9px 0; font-size: 11px; }
+.profile-save { display: flex; gap: 8px; align-items: center; justify-content: space-between; }
+.profile-save .primary { padding: 8px 12px; }
 .dialog-feedback { margin: 0; padding-top: 6px; color: var(--gold); font-size: 12px; }
 #toast { position: fixed; z-index: 5; bottom: calc(var(--bottom) + 45px); left: 50%; max-width: 88vw; transform: translate(-50%, 12px); opacity: 0; pointer-events: none; background: #36271d; border: 1px solid #bc9052; border-radius: 8px; padding: 8px 11px; color: #fff0d7; font-size: 12px; transition: .18s; }
 #toast.show { opacity: 1; transform: translate(-50%, 0); }

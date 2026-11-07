@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { DatabaseSync } from 'node:sqlite';
 import { Market, endpoint } from '../server/market.mjs';
-import { CHAT_MS, MARKET_DURATION, STOCK, START_MONEY, marketSession } from '../game/catalog.mjs';
+import { CHAT_MS, DEFAULT_LOOK, MARKET_DURATION, STOCK, START_MONEY, marketSession } from '../game/catalog.mjs';
 
 const midnight=Date.parse('2026-11-08T00:00:00+09:00');
 const start=marketSession(midnight).next;
@@ -136,4 +136,28 @@ test('chat is authenticated, transient, limited and visible to another guest', t
   const sync=now=>market.action({action:'sync',token:neighbor.token},now);
   assert.deepEqual(sync(midnight+500).peers[0].speech,sent.speech);
   assert.equal(sync(sent.speech.expiresAt).peers[0].speech,undefined);
+});
+
+test('profile saves purchased clothing and shares the look without sharing the basket', t=>{
+  const data=setup();t.after(data.close);
+  const market=data.create();
+  const guest=market.action({action:'join'},start);
+  const neighbor=market.action({action:'join'},start);
+  assert.deepEqual(guest.player.look,DEFAULT_LOOK);
+  const look={hat:'knit',coat:'mustard',bag:'tote',scarf:'indigo-stripe'};
+  const save={action:'profile',token:guest.token,name:'시장 단골',look};
+  assert.equal(market.action(save,start+100).status,409);
+  assert.equal(market.action({...save,look:{...look,hat:'constructor'}},start+200).status,400);
+  assert.equal(market.action({action:'sync',token:guest.token},start+250).player.name,guest.player.name);
+  market.action({action:'buy',token:guest.token,item:look.scarf},start+400);
+  const saved=market.action(save,start+500);
+  assert.deepEqual(saved.player.look,look);
+  assert.equal(saved.player.cash,START_MONEY-750);
+  assert.equal(saved.basket[0].item,look.scarf);
+  const other=market.action({action:'sync',token:neighbor.token},start+700);
+  assert.deepEqual(other.peers[0].look,look);
+  assert.deepEqual(other.basket,[]);
+  const restored=data.create().action({action:'sync',token:guest.token},start+800);
+  assert.deepEqual(restored.player.look,look);
+  assert.equal(restored.player.name,'시장 단골');
 });

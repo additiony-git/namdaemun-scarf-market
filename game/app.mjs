@@ -1,6 +1,6 @@
-import { CHAT_LIMIT, CHAT_MS, CLOTH, JUNK, LINES, SPAWN, STOCK, START_MONEY, chatText, marketSession, niceName } from './catalog.mjs';
+import { AVATAR_OPTIONS, CHAT_LIMIT, CHAT_MS, CLOTH, DEFAULT_LOOK, JUNK, LINES, SCARVES, SPAWN, STOCK, START_MONEY, chatText, marketSession, niceName, normalizeLook } from './catalog.mjs';
 import { MARKET_API } from './config.mjs';
-import { createWorld } from './world.mjs';
+import { createWorld, drawAvatarPreview } from './world.mjs';
 
 const shapes = {
   store: '<path d="M3 10v10h18V10M2 10l2-6h16l2 6M2 10c1 4 4 4 5 0 1 4 4 4 5 0 1 4 4 4 5 0 1 4 4 4 5 0M9 20v-5h6v5"/>',
@@ -21,6 +21,7 @@ const shapes = {
   coin: '<circle cx="12" cy="12" r="9"/><path d="M9 9h6m-6 6h6m-6-3h6m-3-4v8"/>',
   clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v6h4"/>',
   message: '<path d="M20 16H9l-5 4V5h16zM8 9h8m-8 3h6"/>',
+  turn: '<path d="M20 8a8 8 0 1 0 0 8M20 3v6h-6"/>',
 };
 const $ = id => document.getElementById(id);
 const format = number => Number(number).toLocaleString('ko-KR');
@@ -43,10 +44,12 @@ function read(key){try{return localStorage.getItem(key);}catch{return temporary.
 function write(key,value){temporary.set(key,value);try{localStorage.setItem(key,value);}catch{/* keep this session playable */}}
 const blank = () => ({ id:'solo', name:'새내기 손님', cash:START_MONEY, collected:0, rank:null });
 let token=read(tokenKey), model, world, mode=endpoint?'loading':'solo', modal='', busy=false, timeOffset=0, misses=0, lastPos='', syncTimer;
-let muted=true, audioCtx, toastTimer, tradeFeedback='', acting=false;
+let muted=true, audioCtx, toastTimer, acting=false;
+let profileTab='avatar', profileFeedback='';
 let nearby='', shop='', shopSignature='', inventory, feed, retryFeedAt=0, transitionRequested=0;
 let lastLine=0, filter='all', sendingChat=false;
 const products=[...CLOTH,...JUNK];
+const partLabels={hat:'모자',coat:'옷',bag:'가방',scarf:'목에 두른 스카프'};
 const openingTime=new Intl.DateTimeFormat('ko-KR',{timeZone:'Asia/Seoul',month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit',hourCycle:'h23'});
 const closedStock=Object.fromEntries(CLOTH.map(item=>[item.id,0]));
 const dialog=$('modal');
@@ -64,10 +67,16 @@ function demo(action='sync', extra={}) {
   }
   const p=data.player;
   let event;
-  if(action==='rename'){
+  if(action==='profile'){
     const name=niceName(extra.name);
     if(!name) throw Error('한 글자 이상 입력해 주세요.');
-    p.name=name;event='간판에 새 닉네임을 걸었어요.';
+    const look=normalizeLook(extra.look);
+    if(!['classic','none'].includes(look.scarf)&&!data.basket.some(item=>item.item===look.scarf&&item.qty>0)){
+      throw Error('장바구니에 있는 스카프만 착용할 수 있어요.');
+    }
+    p.name=name;
+    p.look=look;
+    event='프로필을 저장했어요.';
   }
   if(action==='buy'){
     const item=CLOTH.find(i=>i.id===extra.item);
@@ -105,7 +114,7 @@ async function request(action, extra={}){
 function setModel(data){
   model=data;
   timeOffset=data.now-Date.now();
-  world?.setPeers(data.peers,data.player.id);
+  world?.setPeers(data.peers,data.player.id,data.player.look);
   for(const peer of data.peers)showChat(peer.speech);
   setInventory(data);
   render();
@@ -172,19 +181,22 @@ function render(){
   $('balance').textContent=format(p.cash);
   status();tick();
   renderShop();
-  if(dialog.open&&modal!=='profile')renderModal();
+  if(dialog.open)renderModal();
 }
 function modalInfo(type){
   return ({
     scarves:['01 · SCARF STALL','스카프 매대'],
     junk:['02 · ODD GOODS','잡화점'],
-    bag:['MY COLLECTION','내 장바구니'],
     rank:['MARKET RANKING','쓸모없는 수집왕'],
-    profile:['MY STALL','닉네임 바꾸기'],
+    profile:['MY MARKET PROFILE','내 프로필'],
   })[type];
 }
-function open(type){
-  modal=type;tradeFeedback='';world?.dir.clear();
+function open(type, tab='avatar'){
+  modal=type;
+  profileTab=tab;
+  profileFeedback='';
+  $('modal-body').replaceChildren();
+  world?.dir.clear();
   const [label,title]=modalInfo(type);
   $('modal-kicker').textContent=label;$('modal-title').textContent=title;
   renderModal();
@@ -246,27 +258,81 @@ function renderShop(){
   }).join('')||'<p class="empty">이 종류의 상품은 모두 나갔어요.</p>';
   if(active?.item)body.querySelector('[data-item="'+active.item+'"][data-action="'+active.action+'"]:not(:disabled)')?.focus({preventScroll:true});
 }
+function basketRows(){
+  const total=model.basket.reduce((sum,item)=>sum+item.qty,0);
+  return '<p class="modal-note">구매한 물건 '+format(total)+'개</p>'+(
+    model.basket.length?model.basket.map(entry=>{
+      const item=products.find(i=>i.id===entry.item);
+      if(!item)return '';
+      const date=new Intl.DateTimeFormat('ko-KR',{timeZone:'Asia/Seoul',dateStyle:'short',timeStyle:'short'}).format(entry.updated);
+      return itemRow(item,'마지막 구매 · '+date,'<span class="item-price">'+format(entry.qty)+'개</span>');
+    }).join(''):'<div class="empty">아직 빈 장바구니예요. 매대에서 첫 물건을 골라보세요.</div>');
+}
+function selectedLook(form){
+  return Object.fromEntries(Object.keys(DEFAULT_LOOK).map(part=>[part,form.elements.namedItem(part).value]));
+}
+function previewLook(){
+  const form=$('profile-form'),canvas=$('avatar-preview');
+  if(form&&canvas)drawAvatarPreview(canvas,selectedLook(form),canvas.dataset.turned==='true');
+}
+function wardrobe(){
+  const owned=new Set(model.basket.filter(item=>item.qty>0).map(item=>item.item));
+  const scarves={classic:{name:'기본 주홍 스카프'},none:{name:'스카프 없음'}};
+  for(const item of SCARVES)if(owned.has(item.id))scarves[item.id]=item;
+  const look=normalizeLook(model.player.look);
+  const fields=Object.entries({...AVATAR_OPTIONS,scarf:scarves}).map(([part,options])=>{
+    const choices=Object.entries(options).map(([id,option])=>'<option value="'+id+'"'+(look[part]===id?' selected':'')+'>'+option.name+'</option>').join('');
+    return '<label for="look-'+part+'">'+partLabels[part]+'</label><select id="look-'+part+'" name="'+part+'">'+choices+'</select>';
+  }).join('');
+  return '<form class="profile-form" id="profile-form"><fieldset id="profile-fields"><div class="profile-editor">'+
+    '<div class="avatar-card"><canvas id="avatar-preview" width="230" height="230" role="img" aria-label="선택한 캐릭터 미리보기"></canvas>'+
+    '<button id="rotate-avatar" class="glass" type="button" aria-pressed="false">'+icon('turn')+' 뒤집어 보기</button></div>'+
+    '<div class="profile-choices"><label for="new-name">닉네임</label><input id="new-name" name="name" required maxlength="28" value="'+safe(model.player.name)+'">'+
+    fields+'</div></div><p class="modal-note wardrobe-note">장바구니에 있는 스카프도 골라서 착용할 수 있어요.</p>'+
+    '<div class="profile-save"><p id="profile-feedback" class="dialog-feedback" role="status"></p><button class="primary" type="submit">프로필 저장</button></div></fieldset></form>';
+}
+function renderProfile(body){
+  if(!$('profile-content')){
+    body.innerHTML='<div class="profile-tabs" role="group" aria-label="내 프로필 메뉴">'+
+      '<button type="button" data-profile-tab="avatar">'+icon('user')+' 캐릭터 꾸미기</button>'+
+      '<button type="button" data-profile-tab="bag">'+icon('bag')+' 내 장바구니</button></div><div id="profile-content"></div>';
+    icons(body);
+  }
+  for(const button of body.querySelectorAll('[data-profile-tab]')){
+    button.setAttribute('aria-pressed',String(button.dataset.profileTab===profileTab));
+  }
+  const content=$('profile-content');
+  if(!model){content.innerHTML='<p class="empty">내 프로필을 불러오고 있어요.</p>';return;}
+  if(!$('profile-avatar'))content.innerHTML='<div id="profile-avatar"></div><div id="profile-bag"></div>';
+  const avatar=$('profile-avatar'),bag=$('profile-bag');
+  avatar.hidden=profileTab!=='avatar';
+  bag.hidden=profileTab!=='bag';
+  if(profileTab==='bag'){
+    const stamp=JSON.stringify(model.basket);
+    if(bag.dataset.basket!==stamp){
+      bag.dataset.basket=stamp;
+      bag.innerHTML=basketRows();
+    }
+    return;
+  }
+  if(!$('profile-form')){
+    avatar.innerHTML=wardrobe();
+    icons(avatar);
+    previewLook();
+  }
+  $('profile-fields').disabled=acting||!['online','solo'].includes(mode);
+  $('profile-feedback').textContent=profileFeedback;
+}
 function renderModal(){
   const body=$('modal-body');
-  if(!model&&modal!=='profile'){body.innerHTML='<p class="empty">장터에 연결하고 있어요.</p>';return;}
-  if(modal==='bag'){
-    const total=model.basket.reduce((sum,item)=>sum+item.qty,0);
-    body.innerHTML='<p class="modal-note">구매한 물건 '+format(total)+'개 · 랭킹에 들어가는 잡화 '+format(model.player.collected)+'개</p>'+(
-      model.basket.length?model.basket.map(entry=>{
-        const item=products.find(i=>i.id===entry.item);
-        if(!item)return '';
-        const date=new Intl.DateTimeFormat('ko-KR',{timeZone:'Asia/Seoul',dateStyle:'short',timeStyle:'short'}).format(entry.updated);
-        return itemRow(item,'마지막 구매 · '+date,'<span class="item-price">'+format(entry.qty)+'개</span>');
-      }).join(''):'<div class="empty">아직 빈 장바구니예요. 매대에서 첫 물건을 골라보세요.</div>');
-  } else if(modal==='rank'){
+  if(modal==='profile'){renderProfile(body);return;}
+  if(!model){body.innerHTML='<p class="empty">장터에 연결하고 있어요.</p>';return;}
+  if(modal==='rank'){
     const p=model.player;
     body.innerHTML='<p class="modal-note">'+(mode==='solo'?'혼자 체험 기록입니다. ':'장터 상위 30명 · ')+'잡화가 많을수록, 동점이면 해당 수량에 먼저 도달한 순서로 앞서요.</p>'+
       (model.ranking.length?'<ol class="rank-list">'+rankRows(model.ranking)+'</ol>':'<div class="empty">아직 수집 기록이 없어요. 첫 수집왕에 도전하세요!</div>')+
       (p.rank?'<p class="modal-note" style="margin-top:10px">내 순위: '+p.rank+'위 · '+format(p.collected)+'개</p>':'');
-  } else if(modal==='profile'){
-    body.innerHTML='<p class="modal-note">이 이름이 골목과 랭킹에 표시됩니다.</p><form class="profile-form" id="rename-form"><label for="new-name">닉네임</label><div><input id="new-name" required maxlength="28" value="'+safe(model?.player.name??'새내기 손님')+'"><button class="primary" type="submit">저장</button></div></form>';
   }
-  if(modal==='profile')body.insertAdjacentHTML('beforeend','<p class="dialog-feedback" role="status">'+safe(tradeFeedback)+'</p>');
   icons(body);
 }
 function toast(message){
@@ -345,6 +411,7 @@ async function connect(){
   }catch{
     misses++;
     mode='retry';status();renderShop();
+    if(dialog.open&&modal==='profile')renderModal();
     next=Math.min(15000,3000*misses);
   }finally{busy=false;if(mode!=='solo')queue(next);}
 }
@@ -353,28 +420,28 @@ async function act(action, extra){
   if(!['online','solo'].includes(mode)){toast('장터에 연결한 뒤 다시 시도해 주세요.');return;}
   acting=true;
   renderShop();
+  if(dialog.open&&modal==='profile')renderModal();
   try{
     if(mode==='online'&&busy){await new Promise(resolve=>{const p=setInterval(()=>{if(!busy){clearInterval(p);resolve();}},35);});}
     busy=true;
     const result=mode==='solo'?demo(action,extra):await request(action,extra);
     if(result.event){
-      tradeFeedback=result.event;
-      if(shop&&action!=='rename')$('shop-feedback').textContent=result.event;
+      if(action==='profile'&&dialog.open&&modal==='profile')profileFeedback=result.event;
+      else if(shop&&action==='buy')$('shop-feedback').textContent=result.event;
       else toast(result.event);
     }
     if(action==='buy'){line();chime();}
     setModel(result);
-    if(action==='rename')dialog.close();
+    if(action==='profile'&&$('new-name'))$('new-name').value=result.player.name;
   }catch(error){
-    tradeFeedback=error.message;
-    if(shop&&action!=='rename')$('shop-feedback').textContent=error.message;
+    if(action==='profile'&&dialog.open&&modal==='profile')profileFeedback=error.message;
+    else if(shop&&action==='buy')$('shop-feedback').textContent=error.message;
     else toast(error.message);
     if(mode==='online')queue(250);
   }finally{
     busy=false;acting=false;
     renderShop();
-    if(dialog.open&&modal!=='profile')renderModal();
-    else if(dialog.open){const feedback=$('modal-body').querySelector('.dialog-feedback');if(feedback)feedback.textContent=tradeFeedback;}
+    if(dialog.open)renderModal();
   }
 }
 
@@ -382,6 +449,7 @@ document.addEventListener('click', e=>{
   const trade=e.target.closest('[data-trade]');
   const item=e.target.closest('[data-action][data-item]');
   const category=e.target.closest('[data-filter]');
+  const tab=e.target.closest('[data-profile-tab]');
   if(trade){
     const type=trade.dataset.trade;
     if(nearby===type||!$('world-error').hidden)openShop(type);
@@ -393,12 +461,35 @@ document.addEventListener('click', e=>{
     $('shop-items').scrollTop=0;
     renderShop();
   }
+  if(tab&&profileTab!==tab.dataset.profileTab){
+    profileTab=tab.dataset.profileTab;
+    renderModal();
+  }
+  if(e.target.closest('#rotate-avatar')){
+    const canvas=$('avatar-preview');
+    const turned=canvas.dataset.turned!=='true';
+    canvas.dataset.turned=String(turned);
+    $('rotate-avatar').setAttribute('aria-pressed',String(turned));
+    previewLook();
+  }
+});
+document.addEventListener('change',e=>{
+  if(e.target.matches('#profile-form select'))previewLook();
+});
+document.addEventListener('input',e=>{
+  if(e.target.closest('#profile-form')){
+    profileFeedback='';
+    $('profile-feedback').textContent='';
+  }
 });
 document.addEventListener('submit', e=>{
-  if(e.target.id==='rename-form'){e.preventDefault();void act('rename',{name:$('new-name').value});}
+  if(e.target.id==='profile-form'){
+    e.preventDefault();
+    void act('profile',{name:$('new-name').value,look:selectedLook(e.target)});
+  }
   if(e.target.id==='chat-form'){e.preventDefault();void sendChat();}
 });
-$('bag-nav').onclick=()=>open('bag');
+$('bag-nav').onclick=()=>open('profile','bag');
 $('rank-nav').onclick=()=>open('rank');
 $('profile').onclick=()=>open('profile');
 $('close-modal').onclick=()=>dialog.close();

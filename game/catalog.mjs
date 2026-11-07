@@ -17,6 +17,36 @@ export const CLOTH = [
   { id: 'rice-stripe', group: 'hanky', name: '쌀빛 테두리 손수건', price: 400, count: 3, color: '#ebd9b2', ink: '#bc7f61', pattern: 'stripe', detail: '쌀빛 바탕에 부드러운 살구색 테두리.' },
 ];
 export const STOCK = Object.fromEntries(CLOTH.map(item => [item.id, item.count]));
+export const AVATAR_OPTIONS = {
+  hat: {
+    cap: { name: '쪽빛 볼캡', color: '546374' },
+    knit: { name: '벽돌색 비니', color: '9c4840' },
+    bucket: { name: '모래색 버킷햇', color: 'bc975f' },
+    none: { name: '모자 없음' },
+  },
+  coat: {
+    teal: { name: '비취색 재킷', color: '638687' },
+    brick: { name: '벽돌색 재킷', color: 'b36451' },
+    navy: { name: '밤하늘색 재킷', color: '5d648f' },
+    mustard: { name: '겨자색 재킷', color: 'c29e4e' },
+  },
+  bag: {
+    backpack: { name: '가죽 배낭', color: 'deb268' },
+    tote: { name: '쌀빛 장바구니', color: 'e3c99d' },
+    crossbody: { name: '밤색 크로스백', color: '8f635a' },
+    none: { name: '가방 없음' },
+  },
+};
+export const DEFAULT_LOOK = { hat: 'cap', coat: 'teal', bag: 'backpack', scarf: 'classic' };
+export const SCARVES = CLOTH.filter(item => item.group === 'scarf');
+export function normalizeLook(value) {
+  const look = { ...DEFAULT_LOOK };
+  for (const [part, options] of Object.entries(AVATAR_OPTIONS)) {
+    if (typeof value?.[part] === 'string' && Object.hasOwn(options, value[part])) look[part] = value[part];
+  }
+  if (value?.scarf === 'none' || SCARVES.some(item => item.id === value?.scarf)) look.scarf = value.scarf;
+  return look;
+}
 export const JUNK = [
   { id: 'stone', name: '이름 없는 돌멩이', price: 350, pic: '🪨', detail: '이름을 지어 주기 전까지는 그냥 돌이에요.' },
   { id: 'sock', name: '왼쪽만 남은 양말', price: 500, pic: '🧦', detail: '오른쪽은 먼저 퇴근했어요.' },
