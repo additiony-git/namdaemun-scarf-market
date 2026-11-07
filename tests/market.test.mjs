@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { DatabaseSync } from 'node:sqlite';
 import { Market, endpoint } from '../server/market.mjs';
-import { ROUND_MS, STOCK, START_MONEY } from '../game/catalog.mjs';
+import { JUNK_STOCK, ROUND_MS, STOCK, START_MONEY } from '../game/catalog.mjs';
 
 function setup() {
   const db=new DatabaseSync(':memory:');
@@ -26,21 +26,28 @@ test('two shoppers share one limited stock; only the first gets the last item, t
   const now=ROUND_MS*1000+600;
   const a=market.action({action:'join'},now).token;
   const b=market.action({action:'join'},now).token;
-  for(let i=0;i<STOCK.hanky-1;i++){
-    const result=market.action({action:'sell',item:'hanky',token:a},now+(i+1)*400);
-    assert.equal(result.stock.hanky,STOCK.hanky-i-1);
-  }
-  const at=now+STOCK.hanky*400;
-  const contenders=await Promise.all([b,a].map(token=>Promise.resolve().then(()=>market.action({action:'sell',item:'hanky',token},at))));
-  assert.equal(contenders[0].stock.hanky,0);
-  assert.equal(contenders[0].player.cash,START_MONEY+800);
+  const c=market.action({action:'join'},now).token;
+  const first=market.action({action:'buy',item:'trophy',token:c},now+400);
+  assert.equal(first.goods.trophy,1);
+  const at=now+800;
+  const contenders=await Promise.all([b,a].map(token=>Promise.resolve().then(()=>market.action({action:'buy',item:'trophy',token},at))));
+  assert.equal(contenders[0].goods.trophy,0);
+  assert.equal(contenders[0].revision,first.revision+1);
+  assert.equal(contenders[0].player.cash,START_MONEY-1500);
   assert.equal(contenders[1].status,409);
   const state=market.action({action:'sync',token:a},at);
-  assert.equal(state.player.sold,STOCK.hanky-1);
-  assert.equal(state.player.cash,START_MONEY+(STOCK.hanky-1)*800);
-  assert.equal(state.online,2);
+  assert.equal(state.goods.trophy,0);
+  assert.deepEqual(state.basket,[]);
+  assert.equal(state.player.cash,START_MONEY);
+  assert.equal(state.online,3);
   assert.equal(state.peers[0].id,contenders[0].player.id);
-  assert.deepEqual(market.action({action:'sync',token:a},(1000+1)*ROUND_MS).stock,STOCK);
+  const next=(1000+1)*ROUND_MS;
+  const refill=market.action({action:'sync',token:b},next);
+  assert.deepEqual(refill.stock,STOCK);
+  assert.deepEqual(refill.goods,JUNK_STOCK);
+  assert.equal(refill.player.cash,START_MONEY);
+  market.action({action:'buy',item:'hanky',token:b},next+400);
+  assert.equal(market.action({action:'sync',token:b},next+800).player.cash,START_MONEY-450);
 });
 
 test('rank ties follow first achievement of the current quantity; purchases persist and stay private', t=>{
@@ -73,11 +80,17 @@ test('HTTP requires the configured origin and a valid token for trades', async t
   const req=(body,source=origin)=>new Request('https://market.example/api/market',{method:'POST',headers:{Origin:source},body:JSON.stringify(body)});
   const blocked=await endpoint(market,req({action:'join'},'https://other.example'),origin);
   assert.equal(blocked.status,403);
-  const auth=await endpoint(market,req({action:'sell',item:'scarf'}),origin);
+  const auth=await endpoint(market,req({action:'buy',item:'scarf'}),origin);
   assert.equal(auth.status,401);
   const join=await endpoint(market,req({action:'join'}),origin);
   assert.equal(join.status,200);assert.equal(join.headers.get('Access-Control-Allow-Origin'),origin);
   const p=await join.json();
-  const sold=await endpoint(market,req({action:'sell',item:'scarf',token:p.token,price:900000}),origin);
-  assert.equal((await sold.json()).player.cash,START_MONEY+1300);
+  const sold=await endpoint(market,req({action:'sell',item:'scarf',token:p.token}),origin);
+  assert.equal(sold.status,400);
+  const response=await endpoint(market,req({action:'buy',item:'scarf',token:p.token,price:0}),origin);
+  const bought=await response.json();
+  assert.equal(bought.player.cash,START_MONEY-700);
+  assert.equal(bought.stock.scarf,STOCK.scarf-1);
+  assert.equal(bought.basket[0].item,'scarf');
+  assert.equal(bought.player.collected,0);
 });

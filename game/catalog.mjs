@@ -6,8 +6,8 @@ export const SPAWN = { x: -0.9, z: 3.9 };
 export const MAP = { minX: -5.65, maxX: 5.55, minZ: -1.85, maxZ: 7.3 };
 export const STALLS = { scarves: { x: -1.7, z: -0.65 }, junk: { x: 3.6, z: 1.9 } };
 export const CLOTH = [
-  { id: 'scarf', name: '꽃무늬 스카프', price: 1300, pic: '🧣', detail: '골목의 주인공. 오늘도 단골이 찾는 꽃무늬.' },
-  { id: 'hanky', name: '잔체크 손수건', price: 800, pic: '▧', detail: '작은 손수건 한 장에도 골목의 기운을 담았어요.' },
+  { id: 'scarf', name: '꽃무늬 스카프', price: 700, pic: '🧣', detail: '골목의 주인공. 오늘도 단골이 찾는 꽃무늬.' },
+  { id: 'hanky', name: '잔체크 손수건', price: 450, pic: '▧', detail: '작은 손수건 한 장에도 골목의 기운을 담았어요.' },
 ];
 export const JUNK = [
   { id: 'stone', name: '이름 없는 돌멩이', price: 350, pic: '🪨', detail: '이름을 지어 주기 전까지는 그냥 돌이에요.' },
@@ -19,6 +19,8 @@ export const JUNK = [
   { id: 'cup', name: '손잡이 없는 찻잔', price: 1000, pic: '🍵', detail: '양손을 쓰게 해 주는 전통의 미학.' },
   { id: 'trophy', name: '아무 대회도 안 한 트로피', price: 1500, pic: '🏆', detail: '참가하지 않은 데 대한 특별상.' },
 ];
+export const JUNK_STOCK = { stone: 6, sock: 5, clock: 4, duck: 4, key: 3, umbrella: 3, cup: 3, trophy: 2 };
+export const SHOP_RADIUS = 2.05;
 export const LINES = [
   '스카프는 천천히 골라요. 놓친 건 재고 탓 하고!',
   '예쁜 거 찾지 마요. 찾다가 본인이 더 예뻐져!',

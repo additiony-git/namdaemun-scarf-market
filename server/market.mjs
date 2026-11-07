@@ -1,6 +1,6 @@
-import { CLOTH, JUNK, MAP, SPAWN, START_MONEY, STOCK, nextRound, niceName, roundAt, fit } from '../game/catalog.mjs';
+import { CLOTH, JUNK, JUNK_STOCK, MAP, SPAWN, START_MONEY, STOCK, nextRound, niceName, roundAt, fit } from '../game/catalog.mjs';
 
-const defaultName = '새내기 상인';
+const defaultName = '새내기 손님';
 const presenceMs = 30_000;
 const tradeMs = 350;
 const problem = (error, status = 400) => ({ error, status });
@@ -14,7 +14,9 @@ export class Market {
     query('CREATE TABLE IF NOT EXISTS players (id TEXT PRIMARY KEY, token TEXT UNIQUE NOT NULL, name TEXT NOT NULL, cash INTEGER NOT NULL, sold INTEGER NOT NULL DEFAULT 0, collected INTEGER NOT NULL DEFAULT 0, reached INTEGER NOT NULL DEFAULT 0, traded INTEGER NOT NULL DEFAULT 0)');
     query('CREATE INDEX IF NOT EXISTS ranking ON players (collected DESC, reached ASC, id ASC)');
     query('CREATE TABLE IF NOT EXISTS stock (round INTEGER PRIMARY KEY, scarf INTEGER NOT NULL, hanky INTEGER NOT NULL)');
+    query('CREATE TABLE IF NOT EXISTS goods_sold (round INTEGER NOT NULL, item TEXT NOT NULL, qty INTEGER NOT NULL, PRIMARY KEY(round, item))');
     query('CREATE TABLE IF NOT EXISTS basket (player TEXT NOT NULL, item TEXT NOT NULL, qty INTEGER NOT NULL, updated INTEGER NOT NULL, PRIMARY KEY(player, item))');
+    query('CREATE TABLE IF NOT EXISTS allowances (player TEXT PRIMARY KEY, round INTEGER NOT NULL)');
     query('CREATE TABLE IF NOT EXISTS counter (id INTEGER PRIMARY KEY CHECK (id = 1), n INTEGER NOT NULL)');
     query('INSERT OR IGNORE INTO counter VALUES (1, 0)');
   }
@@ -29,9 +31,25 @@ export class Market {
     if (!record) {
       this.query('INSERT INTO stock VALUES (?, ?, ?)', round, STOCK.scarf, STOCK.hanky);
       this.query('DELETE FROM stock WHERE round < ?', round - 2);
+      this.query('DELETE FROM goods_sold WHERE round < ?', round - 2);
       record = { ...STOCK };
     }
     return record;
+  }
+  inventory(now) {
+    const round = roundAt(now);
+    const stock = this.stock(now);
+    const goods = { ...JUNK_STOCK };
+    let used = STOCK.scarf - stock.scarf + STOCK.hanky - stock.hanky;
+    for (const { item, qty } of this.query('SELECT item, qty FROM goods_sold WHERE round = ?', round)) {
+      goods[item] -= qty;
+      used += qty;
+    }
+    return { stock, goods, revision: round * 1000 + used, next: nextRound(now) };
+  }
+  takeCloth(item, now) {
+    this.query('UPDATE stock SET scarf = scarf - ?, hanky = hanky - ? WHERE round = ?',
+      Number(item === 'scarf'), Number(item === 'hanky'), roundAt(now));
   }
   action(body, now = Date.now(), ip = 'local') {
     const { action, token, pos } = body ?? {};
@@ -49,6 +67,19 @@ export class Market {
         this.query('INSERT INTO players (id, token, name, cash) VALUES (?, ?, ?, ?)', player.id, issued, player.name, START_MONEY);
       }
       if (!player) return problem('장터에 다시 입장해 주세요.', 401);
+      const round = roundAt(now);
+      const allowance = this.get('SELECT round FROM allowances WHERE player = ?', player.id);
+      if (allowance?.round !== round) {
+        this.query('INSERT INTO allowances VALUES (?, ?) ON CONFLICT(player) DO UPDATE SET round = excluded.round', player.id, round);
+        if (!allowance && player.name === '새내기 상인') {
+          this.query('UPDATE players SET name = ? WHERE id = ?', defaultName, player.id);
+          player.name = defaultName;
+        }
+        if (player.cash < START_MONEY) {
+          this.query('UPDATE players SET cash = ? WHERE id = ?', START_MONEY, player.id);
+          player.cash = START_MONEY;
+        }
+      }
       let event;
       if (action === 'rename') {
         const name = niceName(typeof body.name === 'string' ? body.name.slice(0, 120) : '');
@@ -56,30 +87,29 @@ export class Market {
         this.query('UPDATE players SET name = ? WHERE id = ?', name, player.id);
         player.name = name;
         event = '간판에 새 닉네임을 걸었어요.';
-      } else if (action === 'sell' || action === 'buy') {
+      } else if (action === 'buy') {
         if (player.traded && now - player.traded < tradeMs) return problem('잠깐만요, 한 개씩 계산할게요.', 429);
-        if (action === 'sell') {
-          const item = CLOTH.find(entry => entry.id === body.item);
-          if (!item) return problem('판매할 수 없는 물건이에요.');
-          if (!this.stock(now)[item.id]) return problem('이번 회차는 품절이에요. 다음 입고를 기다려 주세요.', 409);
-          const column = item.id === 'scarf' ? 'scarf' : 'hanky';
-          this.query('UPDATE stock SET ' + column + ' = ' + column + ' - 1 WHERE round = ?', roundAt(now));
-          this.query('UPDATE players SET cash = cash + ?, sold = sold + 1, traded = ? WHERE id = ?', item.price, now, player.id);
-          player.cash += item.price;
-          player.sold++;
-          event = item.name + ' 판매! +' + item.price.toLocaleString('ko-KR') + '원';
+        const cloth = CLOTH.find(entry => entry.id === body.item);
+        const item = cloth ?? JUNK.find(entry => entry.id === body.item);
+        if (!item) return problem('매대에 없는 물건이에요.');
+        const inventory = this.inventory(now);
+        if (!(cloth ? inventory.stock[item.id] : inventory.goods[item.id])) {
+          return problem('다른 손님이 먼저 가져갔어요. 다음 입고를 기다려 주세요.', 409);
+        }
+        if (player.cash < item.price) return problem('장터돈이 부족해요. 다음 입고 때 장보기 예산이 다시 채워져요.', 409);
+        if (cloth) {
+          this.takeCloth(item.id, now);
+          this.query('UPDATE players SET cash = cash - ?, traded = ? WHERE id = ?', item.price, now, player.id);
         } else {
-          const item = JUNK.find(entry => entry.id === body.item);
-          if (!item) return problem('잡화점에 없는 물건이에요.');
-          if (player.cash < item.price) return problem('장터돈이 부족해요. 스카프나 손수건을 먼저 팔아 보세요.', 409);
+          this.query('INSERT INTO goods_sold VALUES (?, ?, 1) ON CONFLICT(round,item) DO UPDATE SET qty = qty + 1', round, item.id);
           const order = this.get('UPDATE counter SET n = n + 1 WHERE id = 1 RETURNING n').n;
           this.query('UPDATE players SET cash = cash - ?, collected = collected + 1, reached = ?, traded = ? WHERE id = ?', item.price, order, now, player.id);
-          this.query('INSERT INTO basket VALUES (?, ?, 1, ?) ON CONFLICT(player,item) DO UPDATE SET qty = qty + 1, updated = excluded.updated', player.id, item.id, now);
-          player.cash -= item.price;
           player.collected++;
           player.reached = order;
-          event = item.name + ' 장바구니에 담았어요!';
         }
+        this.query('INSERT INTO basket VALUES (?, ?, 1, ?) ON CONFLICT(player,item) DO UPDATE SET qty = qty + 1, updated = excluded.updated', player.id, item.id, now);
+        player.cash -= item.price;
+        event = item.name + ' 장바구니에 담았어요!';
       } else if (action !== 'join' && action !== 'sync') {
         return problem('알 수 없는 거래입니다.');
       }
@@ -90,7 +120,7 @@ export class Market {
       const ranking = this.query('SELECT id, name, collected FROM players WHERE collected > 0 ORDER BY collected DESC, reached ASC, id ASC LIMIT 30');
       const myRank = player.collected ? this.get('SELECT COUNT(*) + 1 AS rank FROM players WHERE collected > ? OR (collected = ? AND reached < ?)', player.collected, player.collected, player.reached).rank : null;
       return {
-        token: issued, event, now, next: nextRound(now), stock: this.stock(now),
+        token: issued, event, now, ...this.inventory(now),
         player: { id: player.id, name: player.name, cash: player.cash, sold: player.sold, collected: player.collected, rank: myRank },
         basket: this.query('SELECT item, qty, updated FROM basket WHERE player = ? ORDER BY updated DESC, item', player.id),
         ranking, online: this.people.size, peers: [...this.people.values()].filter(p => p.id !== player.id).slice(0, 35).map(({ id, name, x, z }) => ({ id, name, x, z })),
@@ -99,7 +129,7 @@ export class Market {
   }
 }
 
-export function endpoint(market, request, allowedOrigin = '', ip = 'local') {
+export function endpoint(market, request, allowedOrigin = '', ip = 'local', onTrade) {
   const origin = request.headers.get('Origin');
   const permitted = !origin || origin === (allowedOrigin || new URL(request.url).origin);
   const headers = { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', Vary: 'Origin' };
@@ -125,6 +155,7 @@ export function endpoint(market, request, allowedOrigin = '', ip = 'local') {
       try { data = JSON.parse(raw); } catch { return send({ error: '요청을 읽을 수 없어요.' }, 400); }
       const result = market.action(data, Date.now(), ip);
       if (result.error) return send({ error: result.error }, result.status);
+      if (data.action === 'buy') onTrade?.(result);
       return send(result);
     } catch (error) {
       console.error('Market request failed:', error?.message);

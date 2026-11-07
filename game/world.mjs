@@ -1,4 +1,4 @@
-import { MAP, SPAWN, STALLS } from './catalog.mjs';
+import { JUNK, JUNK_STOCK, MAP, SHOP_RADIUS, SPAWN, STALLS, STOCK } from './catalog.mjs';
 
 const ground = -0.09;
 const hex = (h) => { const n = parseInt(h.replace('#', ''), 16); return [(n >> 16) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255]; };
@@ -14,6 +14,9 @@ const right = norm(cross([0,1,0], eye));
 const up = cross(eye, right);
 const T = (x=0,y=0,z=0,a=0) => (u,v,w) => [x+Math.cos(a)*u+Math.sin(a)*w,y+v,z-Math.sin(a)*u+Math.cos(a)*w];
 const I = T();
+const scarfCounter = T(-1.72, 0, -3.26);
+const junkCounter = T(4.92, 0, -.38, -.43);
+const vendorPosition = { scarves: [-2.06, 0, -.94], junk: junkCounter(-.82, 0, 2.04) };
 const cloths = ['e68176','e6bc7b','c95a48','71949a','a798be','78a49e','e5ccac','af715e','eed0ac','686c90'];
 const brick = ['856253','916b58','9d7661','96735e','8c6a57','a67a60','986a55','aa846b','aa8067','896254'];
 const sideBrick = ['a56f56','aa785e','946b62','81594d','b18364'];
@@ -68,6 +71,41 @@ function character(m, x,z,angle, coat, type, phase=0) {
   m.box(t,0,1.019,.10,.425,.045,.36,type===1?'3b3332':type===2?'ba7769':'647a87');
   if(type===1||type===0){m.box(t,0,.723,.05,.44,.092,.33,'da6849');m.box(t,.12,.48,.174,.12,.26,.032,'f18862');}
   if(type===0){m.box(t,0,.37,-.218,.35,.38,.19,'deb268');m.box(t,0,.47,-.32,.27,.17,.018,'9d6f45');}
+}
+
+function drawProducts(mesh, stock, goods) {
+  for (let i=0;i<stock.scarf+stock.hanky;i++) {
+    const scarf=i<stock.scarf;
+    // Keep the handkerchief stacks fixed even when a scarf is bought.
+    const slot=scarf?i:STOCK.scarf+i-stock.scarf;
+    const stack=Math.floor(slot/3);
+    const x=-2.12+(stack%8)*.6;
+    const y=.69+(slot%3)*.054;
+    const z=1.16+Math.floor(stack/8)*.29;
+    const w=scarf?.51:.36;
+    mesh.box(scarfCounter,x,y,z,w,.052,.24,cloths[slot%cloths.length]);
+    mesh.box(scarfCounter,x,y+.052,z+.045,w-.065,.004,.027,scarf?'f4d4a8':'f7e5cf');
+  }
+  const colors=['969489','a6728d','ba7456','e7bd57','b49462','927fba','879d80','d6a943'];
+  for (const [index,item] of JUNK.entries()) {
+    const x=-1.42+(index%4)*.92;
+    const shelf=index<4 ? .69 : 1.062;
+    const front=index<4 ? 1.34 : .27;
+    for (let i=0;i<goods[item.id];i++) {
+      const u=x+(i%3-1)*.22;
+      const z=front+(Math.floor(i/3)-.5)*.18;
+      const color=colors[index];
+      if(item.id==='stone')mesh.gem(junkCounter,u,shelf+.071,z,.075,color);
+      else if(item.id==='duck'){
+        mesh.box(junkCounter,u,shelf,z,.15,.09,.12,color);
+        mesh.box(junkCounter,u,shelf+.075,z+.036,.09,.075,.084,color);
+        mesh.box(junkCounter,u,shelf+.095,z+.09,.055,.026,.042,'dc7845');
+      } else {
+        mesh.box(junkCounter,u,shelf,z,.14,.13,.12,color);
+        mesh.box(junkCounter,u,shelf+.025,z+.062,.09,.066,.013,'ecd5a8');
+      }
+    }
+  }
 }
 
 function buildScene(m, signs) {
@@ -135,11 +173,7 @@ function buildScene(m, signs) {
   }
   function merchandise(tr,x,y,z,kind,index){
     const c=cloths[index%cloths.length];
-    if(kind==='cloth'){
-      m.box(tr,x,y,z,.45,.067,.35,c);m.box(tr,x-.012,y+.064,z-.015,.41,.067,.31,cloths[(index+3)%cloths.length]);
-      m.box(tr,x-.02,y+.13,z-.022,.36,.042,.28,c);
-      for(let p=0;p<3;p++)m.box(tr,x-.13+p*.102,y+.171,z-.01,.04,.005,.17,'edcc9b');
-    }else if(kind==='junk'){
+    if(kind==='junk'){
       if(index%3===0){m.box(tr,x,y,z,.20,.145,.17,c);m.gem(tr,x,y+.2,z,.13,c);m.box(tr,x,y+.16,z+.13,.13,.04,.05,'e3a253');}
       else if(index%3===1){m.box(tr,x,y,z,.28,.04,.22,'905843');m.box(tr,x,y+.04,z,.078,.18,.079,'d8a850');m.gem(tr,x,y+.24,z,.13,'e5c46a');}
       else {m.box(tr,x,y,z,.22,.25,.21,'696a8a');m.box(tr,x,y+.02,z+.11,.17,.19,.021,'d8c19d');m.box(tr,x,y+.11,z+.128,.105,.015,.014,'694833');}
@@ -152,7 +186,7 @@ function buildScene(m, signs) {
     m.box(tr,0,.15,.152,w-.40,1.49,.03,'634330');
     for(let j=0;j<2;j++){
       m.box(tr,0,.53+j*.48,.21,w-.55,.052,.23,'9b6443');
-      for(let i=0;i<Math.floor((w-.50)/.5);i++) merchandise(tr,-(w-.56)/2+.20+i*.5,.582+j*.48,.24,kind,i+j*3);
+      if(kind)for(let i=0;i<Math.floor((w-.50)/.5);i++) merchandise(tr,-(w-.56)/2+.20+i*.5,.582+j*.48,.24,kind,i+j*3);
     }
     signBoard(tr,0,2.22,.16,w-.22,.47,top,bottom,signColor,ink);
     canopy(tr,width,front,1.77,stripes, .22,front-.13);
@@ -164,15 +198,7 @@ function buildScene(m, signs) {
     m.box(tr,0,.04,front-.13,w-.53,.56,depth,'85533a');
     for(let k=0;k<Math.floor((w-.56)/.19);k++)m.box(tr,-(w-.57)/2+.06+k*.19,.06,front+.143,.025,.53,.029,'ad7349');
     m.box(tr,0,.60,front-.13,w-.37,.09,depth+.10,'c18a52');
-    for(let i=0;i<Math.floor((w-.52)/.51);i++){
-      const u=-(w-.56)/2+.22+i*.51;
-      merchandise(tr,u,.69,front-.13,kind,i);
-      if(kind==='cloth'&&i%2===0){
-        m.box(tr,u,.39,front+.167,.37,.24,.04,cloths[(i+3)%cloths.length]);
-        m.box(tr,u,.40,front+.190,.33,.031,.014,'edd2ab');
-        m.box(tr,u,.58,front+.190,.33,.023,.014,'edd2ab');
-      }
-    }
+    if(kind)for(let i=0;i<Math.floor((w-.52)/.51);i++) merchandise(tr,-(w-.56)/2+.22+i*.51,.69,front-.13,kind,i);
     for(let i=0;i<Math.floor(w/.52);i++){
       const u=-w/2+.22+i*.54;
       m.segment(tr(u,1.77,front-.10),tr(u,1.65,front-.10),.018,'64452d');
@@ -182,8 +208,8 @@ function buildScene(m, signs) {
   }
   store({x:-7.5,z:-2.1,w:4.5,a:Math.PI*.46,wall:'9d6f5c',h:4.8,top:'남대문 잡채호떡',bottom:'갓 구운 골목 간식',signColor:'824d35',ink:'ffdb9d',stripes:['b26349','efad70'],kind:'fruit'});
   store({x:-8.2,z:3.1,w:4.7,a:Math.PI*.45,wall:'a57358',h:4.1,top:'오늘은 장날',bottom:'남대문 식품',signColor:'466454',ink:'ffe2a7',stripes:['80917c','d8be8f'],kind:'fruit'});
-  const scarf=store({x:-1.72,z:-3.26,w:5.28,a:0,wall:'a67459',h:4.63,top:'남대문 스카프 상회',bottom:'스카프 · 손수건 · 골목의 멋',signColor:'922f2d',ink:'ffe0a4',stripes:['c75b4e','f0c695'],kind:'cloth',front:1.45});
-  const junk=store({x:4.92,z:-.38,w:3.75,a:-.43,wall:'83646a',h:3.9,top:'쓸데없는 잡화점',bottom:'아무짝에도 쓸모없는 보물',signColor:'55415f',ink:'f5d1ec',stripes:['8a627d','d3a7a7'],kind:'junk',front:1.41});
+  const scarf=store({x:-1.72,z:-3.26,w:5.28,a:0,wall:'a67459',h:4.63,top:'남대문 스카프 상회',bottom:'스카프 · 손수건 · 골목의 멋',signColor:'922f2d',ink:'ffe0a4',stripes:['c75b4e','f0c695'],front:1.45});
+  const junk=store({x:4.92,z:-.38,w:3.75,a:-.43,wall:'83646a',h:3.9,top:'쓸데없는 잡화점',bottom:'아무짝에도 쓸모없는 보물',signColor:'55415f',ink:'f5d1ec',stripes:['8a627d','d3a7a7'],front:1.41});
   const near=store({x:8.3,z:3.4,w:3.1,a:-1.12,wall:'8e725f',h:3.25,top:'남문 그릇',bottom:'사기 · 잡화',signColor:'585a45',ink:'f4d295',stripes:['7e8469','d7a77c'],kind:'junk'});
   building(2.5,-9.8,3.9,6.7,0,'916358',['855749','a07560']);
   building(-1.5,-10.9,4.0,6.1,.12,'89635b',['7c544e','a07564']);
@@ -221,8 +247,8 @@ function buildScene(m, signs) {
       if(i%4===0&&i>0&&i<22&&za!==6.55) m.face([[x+.07,y,z],[x+.35,y,z-.035],[x+.25,y-.26,z-.035]],pick(['e6a263','bc6052','8f9d80','b58796']),false);
     }
   }
-  character(m,-1.72,-2.35,.02,'6a5142',1);
-  character(m,4.36,.44,-.38,'998391',2);
+  character(m,vendorPosition.scarves[0],vendorPosition.scarves[2],.22,'5c4838',1);
+  character(m,vendorPosition.junk[0],vendorPosition.junk[2],-.38,'998391',2);
   for(const [x,z,a,c] of [[-4.22,1.2,.67,'ac6755'],[2.44,-1.27,-.5,'7b9081'],[-4.9,-4.35,.1,'c69c70'],[-3.72,5.25,1.3,'b59b77'],[3.33,5.68,-.6,'8c718c'],[.57,-4.65,-1.1,'9b755c']]) character(m,x,z,a,c,2);
 }
 
@@ -264,14 +290,25 @@ export function createWorld(canvas, markers, onNearby) {
     const b=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,b);gl.bufferData(gl.ARRAY_BUFFER,new Float32Array(data),usage);return b;
   }
   const world=new Mesh(), signs=[];buildScene(world,signs);
-  const staticMesh=buffer(world.data), dynamicMesh=buffer([],gl.DYNAMIC_DRAW);
+  const staticMesh=buffer(world.data), dynamicMesh=buffer([],gl.DYNAMIC_DRAW), productMesh=buffer([],gl.DYNAMIC_DRAW);
+  let productVertices=0;
+  function setStock(stock, goods){
+    const mesh=new Mesh();
+    drawProducts(mesh,stock,goods);
+    gl.bindBuffer(gl.ARRAY_BUFFER,productMesh);
+    gl.bufferData(gl.ARRAY_BUFFER,new Float32Array(mesh.data),gl.DYNAMIC_DRAW);
+    productVertices=mesh.data.length/6;
+  }
+  setStock(STOCK,JUNK_STOCK);
   const lettering=signs.map(s=>{
     const pos=(x,y,u,v)=>[...s.tr(s.x+x*s.w,s.y+y*s.h,s.z),u,v];
     const a=pos(-.5,-.5,0,1),b=pos(.5,-.5,1,1),c=pos(.5,.5,1,0),d=pos(-.5,.5,0,0);
     return { b:buffer([...a,...b,...c,...a,...c,...d]), tex:texture(gl,s) };
   });
-  const self={...SPAWN,a:.25}; let near='scarves', zoom=false, last=0, walk=0, width=1,height=1;
-  let cam=[.20,1.07,.75], sx=.11,sy=.17, targetH=11.0; let peers = new Map();
+  const self={...SPAWN,a:.25};
+  let near='', shopFocused=false, last=0, walk=0, width=1,height=1;
+  let cam=[.20,1.07,.75], sx=.11,sy=.17;
+  let peers = new Map();
   const labels=markers.scarves.parentElement;
   const dir=new Set();
   function setView(prog){
@@ -309,14 +346,19 @@ export function createWorld(canvas, markers, onNearby) {
       if(walkable(self.x,z))self.z=z;
       self.a=Math.atan2(v[0],v[2]);walk+=dt*14;
     }
-    const distance=([key,p])=>[key,Math.hypot(self.x-p.x,self.z-p.z)];
-    const current=Object.entries(STALLS).map(distance).sort((a,b)=>a[1]-b[1])[0][0];
+    const scarfDistance=Math.hypot(self.x-STALLS.scarves.x,self.z-STALLS.scarves.z);
+    const junkDistance=Math.hypot(self.x-STALLS.junk.x,self.z-STALLS.junk.z);
+    const nearest=scarfDistance<junkDistance?'scarves':'junk';
+    const distance=Math.min(scarfDistance,junkDistance);
+    const current=distance<=SHOP_RADIUS+(near===nearest?.24:0)?nearest:'';
     if(current!==near){near=current;onNearby(current);}
     const follow=1-Math.exp(-dt*4);
-    cam[0]=fade(cam[0],.2+(self.x-SPAWN.x)*.26,follow);
-    cam[2]=fade(cam[2],.75+(self.z-SPAWN.z)*.20,follow);
-    targetH=fade(targetH,zoom?9.45:11.0,follow);
-    const ratio=width/height, span=Math.max(targetH, (zoom?12.3:14.5)/ratio);
+    const compact=width<=640;
+    const stall=shopFocused?STALLS[near]:null;
+    cam[0]=fade(cam[0],stall?stall.x+(compact?1.05:2):.2+(self.x-SPAWN.x)*(compact?.72:.26),follow);
+    cam[1]=fade(cam[1],compact&&stall?-2.05:1.02,follow);
+    cam[2]=fade(cam[2],stall?stall.z+(compact?3.3:1.9):.8+(self.z-SPAWN.z)*.25,follow);
+    const ratio=width/height, span=Math.max(8.9, (compact?10.1:14.2)/ratio);
     sy=2/span;sx=sy/ratio;
     gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT);
     const dynamic=new Mesh();
@@ -330,6 +372,7 @@ export function createWorld(canvas, markers, onNearby) {
     dynamic.disc(self.x,.016,self.z,.36,.24,'805d45');
     character(dynamic,self.x,self.z,self.a,'638687',0,motion?walk:0);
     setView(programs[0]);draw(programs[0],staticMesh,world.data.length/6,6);
+    draw(programs[0],productMesh,productVertices,6);
     gl.bindBuffer(gl.ARRAY_BUFFER,dynamicMesh);gl.bufferData(gl.ARRAY_BUFFER,new Float32Array(dynamic.data),gl.DYNAMIC_DRAW);
     draw(programs[0],dynamicMesh,dynamic.data.length/6,6);
     setView(programs[1]);
@@ -338,6 +381,12 @@ export function createWorld(canvas, markers, onNearby) {
       const [x,y]=project(...p);markers[key].style.left=x+'px';markers[key].style.top=y+'px';
       markers[key].hidden=x<35||x>width-35||y<52||y>height-60;
     }
+    const speaker=vendorPosition[near==='junk'?'junk':'scarves'];
+    const [bubbleX,bubbleY]=project(speaker[0],1.32,speaker[2]);
+    const half=markers.speech.offsetWidth/2+10;
+    markers.speech.style.left=Math.max(half,Math.min(width-half,bubbleX))+'px';
+    markers.speech.style.top=bubbleY+'px';
+    markers.speech.hidden=bubbleX<0||bubbleX>width||bubbleY<95||bubbleY>height-50;
     for(const p of peers.values()){
       const [x,y]=project(p.x,1.33,p.z);
       p.label.style.left=x+'px';p.label.style.top=y+'px';
@@ -345,10 +394,11 @@ export function createWorld(canvas, markers, onNearby) {
     }
     requestAnimationFrame(frame);
   }
-  onNearby(near);requestAnimationFrame(frame);
+  requestAnimationFrame(frame);
   return {
     dir, position:()=>({x:+self.x.toFixed(2),z:+self.z.toFixed(2)}), moving:()=>motion,
-    toggleZoom:()=>zoom=!zoom,
+    focusShop(active){shopFocused=active;},
+    setStock,
     setPeers(list){
       const current=new Map();
       for(const p of list){
