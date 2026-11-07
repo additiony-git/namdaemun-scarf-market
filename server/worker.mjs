@@ -20,15 +20,17 @@ export class MarketRoom extends DurableObject {
       return new Response(null, { status: 101, webSocket: client });
     }
     return endpoint(this.market, request, this.env.PAGES_ORIGIN, request.headers.get('CF-Connecting-IP') || 'unknown',
-      ({ stock, goods, revision, next }) => {
-        const update = JSON.stringify({ stock, goods, revision, next });
+      (action, { stock, goods, revision, next, open, closes, speech }) => {
+        const update = JSON.stringify(action === 'chat'
+          ? { type: 'chat', speech }
+          : { stock, goods, revision, next, open, closes });
         for (const socket of this.ctx.getWebSockets()) {
           try { socket.send(update); } catch { /* the client has disconnected */ }
         }
       });
   }
   webSocketMessage(socket) {
-    socket.close(1008, 'Inventory feed is read only');
+    socket.close(1008, 'Market feed is read only');
   }
   webSocketClose(socket) {
     socket.close(1000);

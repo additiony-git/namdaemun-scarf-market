@@ -1,4 +1,4 @@
-import { CLOTH, JUNK, JUNK_LINES, JUNK_STOCK, LINES, SPAWN, STOCK, START_MONEY, nextRound, niceName, roundAt } from './catalog.mjs';
+import { CHAT_LIMIT, CHAT_MS, CLOTH, JUNK, LINES, SPAWN, STOCK, START_MONEY, chatText, marketSession, niceName } from './catalog.mjs';
 import { MARKET_API } from './config.mjs';
 import { createWorld } from './world.mjs';
 
@@ -20,6 +20,7 @@ const shapes = {
   wallet: '<path d="M20 8V5H5a2 2 0 0 0-2 2v12h18V8H5a2 2 0 0 1 0-4m16 8h-6a2 2 0 0 0 0 4h6"/>',
   coin: '<circle cx="12" cy="12" r="9"/><path d="M9 9h6m-6 6h6m-6-3h6m-3-4v8"/>',
   clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v6h4"/>',
+  message: '<path d="M20 16H9l-5 4V5h16zM8 9h8m-8 3h6"/>',
 };
 const $ = id => document.getElementById(id);
 const format = number => Number(number).toLocaleString('ko-KR');
@@ -43,23 +44,24 @@ function write(key,value){temporary.set(key,value);try{localStorage.setItem(key,
 const blank = () => ({ id:'solo', name:'새내기 손님', cash:START_MONEY, collected:0, rank:null });
 let token=read(tokenKey), model, world, mode=endpoint?'loading':'solo', modal='', busy=false, timeOffset=0, misses=0, lastPos='', syncTimer;
 let muted=true, audioCtx, toastTimer, tradeFeedback='', acting=false;
-let nearby='', shop='', shopSignature='', inventory, feed, retryFeedAt=0, refillRequested=0;
-const lastLine={scarves:0,junk:-1};
+let nearby='', shop='', shopSignature='', inventory, feed, retryFeedAt=0, transitionRequested=0;
+let lastLine=0, filter='all', sendingChat=false;
 const products=[...CLOTH,...JUNK];
+const openingTime=new Intl.DateTimeFormat('ko-KR',{timeZone:'Asia/Seoul',month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit',hourCycle:'h23'});
+const closedStock=Object.fromEntries(CLOTH.map(item=>[item.id,0]));
 const dialog=$('modal');
 function demo(action='sync', extra={}) {
   let data;
   try {data=JSON.parse(read(demoKey));} catch { /* start fresh */ }
   data ??= { player:blank(), basket:[], round:-1, stock:{...STOCK} };
-  if(!data.goods&&data.player.name==='새내기 상인')data.player.name='새내기 손님';
   const now=Date.now();
-  if(data.round!==roundAt(now)){
-    data.round=roundAt(now);
+  const session=marketSession(now);
+  if(data.player.name==='새내기 상인')data.player.name='새내기 손님';
+  if(session.open&&data.round!==session.round){
+    data.round=session.round;
     data.stock={...STOCK};
-    data.goods={...JUNK_STOCK};
     data.player.cash=Math.max(data.player.cash,START_MONEY);
   }
-  data.goods??={...JUNK_STOCK};
   const p=data.player;
   let event;
   if(action==='rename'){
@@ -68,15 +70,13 @@ function demo(action='sync', extra={}) {
     p.name=name;event='간판에 새 닉네임을 걸었어요.';
   }
   if(action==='buy'){
-    const item=products.find(i=>i.id===extra.item);
+    const item=CLOTH.find(i=>i.id===extra.item);
     if(!item) throw Error('매대에 없는 물건이에요.');
-    const cloth=item.id in STOCK;
-    const counts=cloth ? data.stock : data.goods;
-    if(!counts[item.id]) throw Error('이번 회차는 품절이에요. 다음 입고를 기다려 주세요.');
-    if(p.cash<item.price) throw Error('장터돈이 부족해요. 다음 입고 때 장보기 예산이 다시 채워져요.');
-    counts[item.id]--;
+    if(!session.open)throw Error('장이 닫혔어요. 다음 개장 시간을 확인해 주세요.');
+    if(!data.stock[item.id]) throw Error('이번 장에는 품절이에요. 다음 장을 기다려 주세요.');
+    if(p.cash<item.price) throw Error('장터돈이 부족해요. 다음 장이 열리면 예산이 다시 채워져요.');
+    data.stock[item.id]--;
     p.cash-=item.price;
-    if(!cloth)p.collected++;
     const existing=data.basket.find(i=>i.item===item.id);
     if(existing){existing.qty++;existing.updated=now;}else data.basket.push({item:item.id,qty:1,updated:now});
     data.basket.sort((a,b)=>b.updated-a.updated);
@@ -84,8 +84,9 @@ function demo(action='sync', extra={}) {
   }
   p.rank=p.collected?1:null;
   write(demoKey,JSON.stringify(data));
-  const used=products.reduce((n,item)=>n+(STOCK[item.id]??JUNK_STOCK[item.id])-(data.stock[item.id]??data.goods[item.id]),0);
-  return {...data, online:1, peers:[], ranking:p.collected?[p]:[], now, next:nextRound(now), revision:data.round*1000+used, event};
+  const used=session.open?CLOTH.reduce((n,item)=>n+item.count-data.stock[item.id],0):500;
+  return {...data,...session,stock:session.open?data.stock:closedStock,
+    online:1,peers:[],ranking:p.collected?[p]:[],now,revision:session.round*1000+used,event};
 }
 async function request(action, extra={}){
   const response=await fetch(endpoint,{
@@ -104,16 +105,23 @@ async function request(action, extra={}){
 function setModel(data){
   model=data;
   timeOffset=data.now-Date.now();
-  world?.setPeers(data.peers);
+  world?.setPeers(data.peers,data.player.id);
+  for(const peer of data.peers)showChat(peer.speech);
   setInventory(data);
   render();
 }
 function setInventory(data){
-  if(!data.stock||!data.goods||!Number.isSafeInteger(data.revision))return;
+  if(!data.stock||typeof data.open!=='boolean'||!Number.isSafeInteger(data.revision))return;
   if(inventory&&data.revision<=inventory.revision)return;
-  inventory={stock:data.stock,goods:data.goods,revision:data.revision,next:data.next};
-  world?.setStock(inventory.stock,inventory.goods);
+  inventory={stock:data.stock,revision:data.revision,next:data.next,open:data.open,closes:data.closes};
+  world?.setStock(inventory.stock);
+  tick();
   renderShop();
+}
+function showChat(speech){
+  if(!speech||typeof speech.text!=='string')return;
+  const remaining=Math.min(CHAT_MS,speech.expiresAt-Date.now()-timeOffset);
+  if(remaining>0)world?.showChat(speech,remaining);
 }
 function connectFeed(){
   if(feed||document.hidden||Date.now()<retryFeedAt||!endpoint.startsWith('https://'))return;
@@ -123,7 +131,11 @@ function connectFeed(){
   feed=socket;
   socket.onmessage=({data})=>{
     if(feed!==socket)return;
-    try { setInventory(JSON.parse(data)); } catch { /* wait for the next server sync */ }
+    try {
+      const update=JSON.parse(data);
+      if(update.type==='chat')showChat(update.speech);
+      else setInventory(update);
+    } catch { /* wait for the next server sync */ }
   };
   socket.onclose=()=>{
     if(feed!==socket)return;
@@ -132,18 +144,23 @@ function connectFeed(){
   };
 }
 function status() {
-  $('live-mode').textContent=mode==='online'?'장터 영업 중':mode==='solo'?'혼자 체험':mode==='loading'?'장터 연결 중':'재연결 중';
+  $('live-mode').textContent=mode==='online'?'골목 접속 중':mode==='solo'?'혼자 체험':mode==='loading'?'골목 연결 중':'재연결 중';
   $('live').classList.toggle('offline',mode!=='online');
   $('live').title=mode==='solo'?'이 브라우저에만 기록되는 혼자 체험 모드':mode==='online'?'현재 이 골목에 접속한 상인 수':'온라인 장터 연결 상태';
   $('online').textContent=mode==='online'&&model?format(model.online):mode==='solo'?'1':'–';
 }
 function tick(){
-  if(!model)return;
-  const next=inventory?.next??model.next;
-  if(mode==='solo'&&next<=Date.now()){setModel(demo());return;}
-  const ms=Math.max(0,next-Date.now()-timeOffset), s=Math.ceil(ms/1000);
-  if(!ms&&mode==='online'&&refillRequested!==next){refillRequested=next;queue(0);}
-  $('countdown').textContent=String(Math.floor(s/60)).padStart(2,'0')+':'+String(s%60).padStart(2,'0');
+  if(!inventory)return;
+  const deadline=inventory.open?inventory.closes:inventory.next;
+  const ms=Math.max(0,deadline-Date.now()-timeOffset);
+  if(!ms&&mode==='solo'){setModel(demo());return;}
+  if(!ms&&mode==='online'&&transitionRequested!==deadline){transitionRequested=deadline;queue(0);}
+  const seconds=Math.ceil(ms/1000);
+  const hours=Math.floor(seconds/3600);
+  const minutes=String(Math.floor(seconds/60)%60).padStart(2,'0');
+  $('clock-label').textContent=inventory.open?'장 마감':'다음 장';
+  $('countdown').textContent=(hours?hours+':':'')+minutes+':'+String(seconds%60).padStart(2,'0');
+  $('countdown').title=openingTime.format(deadline)+' (한국 시간)';
 }
 function rankRows(list){
   return list.map((p,i)=>'<li class="rank-row"><span class="rank-pos">'+(i+1)+'</span><span class="rank-face">'+icon('user')+'</span><span class="rank-name">'+safe(p.name)+(p.id===model.player.id?'<small>나</small>':'')+'</span><span class="rank-num">'+format(p.collected)+'<small> 개</small></span></li>').join('');
@@ -160,7 +177,7 @@ function render(){
 function modalInfo(type){
   return ({
     scarves:['01 · SCARF STALL','스카프 매대'],
-    junk:['02 · ODD GOODS','쓸데없는 잡화점'],
+    junk:['02 · ODD GOODS','잡화점'],
     bag:['MY COLLECTION','내 장바구니'],
     rank:['MARKET RANKING','쓸모없는 수집왕'],
     profile:['MY STALL','닉네임 바꾸기'],
@@ -174,10 +191,14 @@ function open(type){
   if(!dialog.open)dialog.showModal();
 }
 function itemRow(item, detail, end){
-  return '<div class="item"><span class="item-pic" aria-hidden="true">'+item.pic+'</span><span class="item-info"><strong>'+item.name+'</strong><small>'+detail+'</small></span>'+end+'</div>';
+  const picture=item.pattern
+    ? '<span class="item-pic" aria-hidden="true"><span class="swatch '+item.pattern+'" style="--cloth:'+item.color+';--ink:'+item.ink+'"></span></span>'
+    : '<span class="item-pic" aria-hidden="true">'+item.pic+'</span>';
+  return '<div class="item">'+picture+'<span class="item-info"><strong>'+item.name+'</strong><small>'+detail+'</small></span>'+end+'</div>';
 }
 function openShop(type){
   shop=type;
+  filter='all';
   shopSignature='';
   $('shop-feedback').textContent='';
   const [label,title]=modalInfo(type);
@@ -197,22 +218,32 @@ function closeShop(){
 function renderShop(){
   if(!shop)return;
   const body=$('shop-items');
+  $('shop-summary').hidden=shop==='junk'||!inventory?.open;
+  $('shop-filters').hidden=shop==='junk'||!inventory?.open;
+  if(shop==='junk'){
+    body.innerHTML='<div class="shop-closed"><span class="closed-tag">OPENING SOON</span><strong>오픈 준비 중</strong><p>진열이 끝나면 잡화점 문을 열어요.</p></div>';
+    return;
+  }
   if(!model||!inventory){body.innerHTML='<p class="empty">상품을 불러오고 있어요.</p>';return;}
-  const signature=[shop,inventory.revision,model.player.cash,mode,acting].join(':');
+  const signature=[inventory.revision,model.player.cash,mode,acting,filter].join(':');
   if(signature===shopSignature)return;
   shopSignature=signature;
-  const cloth=shop==='scarves';
-  const counts=cloth?inventory.stock:inventory.goods;
-  const items=cloth?CLOTH:JUNK;
-  const total=items.reduce((sum,item)=>sum+counts[item.id],0);
+  if(!inventory.open){
+    body.innerHTML='<div class="shop-closed"><span class="closed-tag">NEXT MARKET</span><strong>다음 장 '+openingTime.format(inventory.next)+'</strong><p>한국 시간 · 오전, 오후, 저녁에 한 번씩 45분 동안 열려요.</p></div>';
+    return;
+  }
+  for(const button of $('shop-filters').querySelectorAll('button'))button.setAttribute('aria-pressed',String(button.dataset.filter===filter));
+  const counts=inventory.stock;
+  const items=CLOTH.filter(item=>filter==='all'||item.group===filter);
+  const total=CLOTH.reduce((sum,item)=>sum+counts[item.id],0);
   $('shop-stock').textContent='남은 상품 '+total+'개';
   const active=body.contains(document.activeElement)?document.activeElement.dataset:null;
   const canTrade=!acting&&['online','solo'].includes(mode);
   body.innerHTML=items.filter(item=>counts[item.id]>0).map(item=>{
     const affordable=model.player.cash>=item.price;
     const buy='<button class="primary" data-item="'+item.id+'" data-action="buy" aria-label="'+item.name+' 사기" '+(!canTrade||!affordable?'disabled':'')+'>'+format(item.price)+'원 '+(affordable?'사기':'예산 부족')+'</button>';
-    return itemRow(item,counts[item.id]+(cloth?'장':'개')+' 남음 · '+item.detail,buy);
-  }).join('')||'<p class="empty">이번 회차 상품이 모두 나갔어요.</p>';
+    return itemRow(item,counts[item.id]+'장 남음 · '+item.detail,buy);
+  }).join('')||'<p class="empty">이 종류의 상품은 모두 나갔어요.</p>';
   if(active?.item)body.querySelector('[data-item="'+active.item+'"][data-action="'+active.action+'"]:not(:disabled)')?.focus({preventScroll:true});
 }
 function renderModal(){
@@ -243,14 +274,43 @@ function toast(message){
   $('toast').textContent=message;$('toast').classList.add('show');
   toastTimer=setTimeout(()=>$('toast').classList.remove('show'),2900);
 }
-function line(stall=nearby||'scarves'){
-  const junk=stall==='junk';
-  const source=junk?JUNK_LINES:LINES;
-  const pos=(lastLine[stall]+1+Math.floor(Math.random()*(source.length-1)))%source.length;
-  lastLine[stall]=pos;
-  $('vendor-name').textContent=junk?'잡화점 이모':'스카프 아저씨';
-  $('vendor-avatar').hidden=junk;
-  $('line').textContent='“'+source[pos]+'”';
+function setChatOpen(open){
+  if(open&&mode!=='online'){
+    toast('온라인 장터에 연결되면 채팅할 수 있어요.');
+    return;
+  }
+  $('chat-form').hidden=!open;
+  $('chat-toggle').setAttribute('aria-expanded',String(open));
+  if(open){
+    world?.dir.clear();
+    $('chat-input').focus();
+  }else{
+    $('chat-input').blur();
+  }
+}
+async function sendChat(){
+  if(sendingChat)return;
+  if(mode!=='online'){toast('장터에 연결한 뒤 다시 시도해 주세요.');return;}
+  const input=$('chat-input');
+  const original=input.value;
+  const text=chatText(original);
+  if(!text||[...text].length>CHAT_LIMIT){toast('채팅은 1~80자로 입력해 주세요.');return;}
+  sendingChat=true;
+  $('send-chat').disabled=true;
+  try{
+    const result=await request('chat',{text});
+    showChat(result.speech);
+    if(input.value===original){input.value='';setChatOpen(false);}
+  }catch(error){
+    toast(error.message);
+  }finally{
+    sendingChat=false;
+    $('send-chat').disabled=false;
+  }
+}
+function line(){
+  lastLine=(lastLine+1+Math.floor(Math.random()*(LINES.length-1)))%LINES.length;
+  $('line').textContent='“'+LINES[lastLine]+'”';
 }
 function chime(){
   if(muted)return;
@@ -302,7 +362,7 @@ async function act(action, extra){
       if(shop&&action!=='rename')$('shop-feedback').textContent=result.event;
       else toast(result.event);
     }
-    if(action==='buy'){line(extra.item in STOCK?'scarves':'junk');chime();}
+    if(action==='buy'){line();chime();}
     setModel(result);
     if(action==='rename')dialog.close();
   }catch(error){
@@ -321,15 +381,22 @@ async function act(action, extra){
 document.addEventListener('click', e=>{
   const trade=e.target.closest('[data-trade]');
   const item=e.target.closest('[data-action][data-item]');
+  const category=e.target.closest('[data-filter]');
   if(trade){
     const type=trade.dataset.trade;
     if(nearby===type||!$('world-error').hidden)openShop(type);
     else toast(type==='scarves'?'스카프 아저씨 앞으로 다가가 보세요.':'잡화점 매대 앞으로 다가가 보세요.');
   }
   if(item)void act(item.dataset.action,{item:item.dataset.item});
+  if(category){
+    filter=category.dataset.filter;
+    $('shop-items').scrollTop=0;
+    renderShop();
+  }
 });
 document.addEventListener('submit', e=>{
   if(e.target.id==='rename-form'){e.preventDefault();void act('rename',{name:$('new-name').value});}
+  if(e.target.id==='chat-form'){e.preventDefault();void sendChat();}
 });
 $('bag-nav').onclick=()=>open('bag');
 $('rank-nav').onclick=()=>open('rank');
@@ -366,10 +433,15 @@ function toggleShop(){
 }
 $('interact').onclick=toggleShop;
 $('close-shop').onclick=closeShop;
+$('chat-toggle').onclick=()=>setChatOpen($('chat-form').hidden);
+$('close-chat').onclick=()=>setChatOpen(false);
 const dirMap={w:'w',a:'a',s:'s',d:'d',ArrowUp:'w',ArrowDown:'s',ArrowLeft:'a',ArrowRight:'d'};
 function direction(key){return dirMap[key]??dirMap[key.toLowerCase()];}
 document.addEventListener('keydown',e=>{
+  if(e.isComposing)return;
+  if(e.key==='Escape'&&!$('chat-form').hidden&&!dialog.open){e.preventDefault();setChatOpen(false);return;}
   if(dialog.open||e.ctrlKey||e.metaKey||e.altKey||e.target.matches('input, textarea'))return;
+  if(e.key==='Enter'&&!e.repeat&&!e.target.closest('button, a')){e.preventDefault();setChatOpen(true);return;}
   const dir=direction(e.key);
   if(dir){e.preventDefault();world?.dir.add(dir);}
   if(e.key.toLowerCase()==='e'&&!e.repeat){e.preventDefault();toggleShop();}
@@ -404,7 +476,7 @@ try{
     if(type)openShop(type);
     else closeShop();
     updateInteract();
-    line();
+    if(type==='scarves')line();
     if(mode==='online'&&feed?.readyState!==WebSocket.OPEN)queue(0);
   });
   $('world').addEventListener('webglcontextlost',e=>{e.preventDefault();showWorldError();});

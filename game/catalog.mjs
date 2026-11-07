@@ -1,14 +1,22 @@
-export const ROUND_MS = 10 * 60 * 1000;
 export const START_MONEY = 2000;
-export const STOCK = { scarf: 36, hanky: 12 };
-export const STOCK_TOTAL = STOCK.scarf + STOCK.hanky;
+export const CHAT_MS = 7_000;
+export const CHAT_LIMIT = 80;
 export const SPAWN = { x: -0.9, z: 3.9 };
 export const MAP = { minX: -5.65, maxX: 5.55, minZ: -1.85, maxZ: 7.3 };
 export const STALLS = { scarves: { x: -1.7, z: -0.65 }, junk: { x: 3.6, z: 1.9 } };
 export const CLOTH = [
-  { id: 'scarf', name: '꽃무늬 스카프', price: 700, pic: '🧣', detail: '골목의 주인공. 오늘도 단골이 찾는 꽃무늬.' },
-  { id: 'hanky', name: '잔체크 손수건', price: 450, pic: '▧', detail: '작은 손수건 한 장에도 골목의 기운을 담았어요.' },
+  { id: 'scarf', group: 'scarf', name: '꽃무늬 스카프', price: 700, count: 6, color: '#bd5a59', ink: '#ffdec1', pattern: 'flower', detail: '살구색 꽃잎이 흩어진 장밋빛 스카프.' },
+  { id: 'indigo-stripe', group: 'scarf', name: '쪽빛 줄무늬 스카프', price: 750, count: 6, color: '#426d91', ink: '#ddedeb', pattern: 'stripe', detail: '쪽빛 바탕에 흰 줄을 또렷하게 넣었어요.' },
+  { id: 'amber-paisley', group: 'scarf', name: '호박빛 페이즐리 스카프', price: 900, count: 6, color: '#c48d46', ink: '#783c37', pattern: 'paisley', detail: '호박색 바탕에 굽은 잎사귀 무늬.' },
+  { id: 'jade-wave', group: 'scarf', name: '비취 물결 스카프', price: 800, count: 6, color: '#477e71', ink: '#cce4c3', pattern: 'wave', detail: '비취색 천을 잔물결처럼 접었어요.' },
+  { id: 'plum-dot', group: 'scarf', name: '자두 도트 스카프', price: 750, count: 6, color: '#8d597a', ink: '#f4c4c5', pattern: 'dot', detail: '자두색과 연분홍 물방울 무늬.' },
+  { id: 'cream-check', group: 'scarf', name: '버터 체크 스카프', price: 700, count: 6, color: '#e6c88a', ink: '#a76954', pattern: 'check', detail: '버터색 천에 갈색 격자를 얹었어요.' },
+  { id: 'hanky', group: 'hanky', name: '잔체크 손수건', price: 450, count: 3, color: '#729a88', ink: '#e1edcb', pattern: 'check', detail: '주머니에 접어 넣기 좋은 잔체크.' },
+  { id: 'peach-flower', group: 'hanky', name: '복숭아 꽃잎 손수건', price: 500, count: 3, color: '#e6a08d', ink: '#fff1cc', pattern: 'flower', detail: '복숭아빛 위에 피어난 작은 꽃송이.' },
+  { id: 'navy-dot', group: 'hanky', name: '밤하늘 점박이 손수건', price: 450, count: 3, color: '#4e547f', ink: '#e8dba6', pattern: 'dot', detail: '짙은 남색 사이로 별 같은 점이 보여요.' },
+  { id: 'rice-stripe', group: 'hanky', name: '쌀빛 테두리 손수건', price: 400, count: 3, color: '#ebd9b2', ink: '#bc7f61', pattern: 'stripe', detail: '쌀빛 바탕에 부드러운 살구색 테두리.' },
 ];
+export const STOCK = Object.fromEntries(CLOTH.map(item => [item.id, item.count]));
 export const JUNK = [
   { id: 'stone', name: '이름 없는 돌멩이', price: 350, pic: '🪨', detail: '이름을 지어 주기 전까지는 그냥 돌이에요.' },
   { id: 'sock', name: '왼쪽만 남은 양말', price: 500, pic: '🧦', detail: '오른쪽은 먼저 퇴근했어요.' },
@@ -19,7 +27,6 @@ export const JUNK = [
   { id: 'cup', name: '손잡이 없는 찻잔', price: 1000, pic: '🍵', detail: '양손을 쓰게 해 주는 전통의 미학.' },
   { id: 'trophy', name: '아무 대회도 안 한 트로피', price: 1500, pic: '🏆', detail: '참가하지 않은 데 대한 특별상.' },
 ];
-export const JUNK_STOCK = { stone: 6, sock: 5, clock: 4, duck: 4, key: 3, umbrella: 3, cup: 3, trophy: 2 };
 export const SHOP_RADIUS = 2.05;
 export const LINES = [
   '스카프는 천천히 골라요. 놓친 건 재고 탓 하고!',
@@ -31,17 +38,38 @@ export const LINES = [
   '고르는 데 한 시간, 사는 데 삼 초! 이게 남대문 시간이여.',
   '뒤집어 봐요. 스카프 앞뒤도 모르면서 가격은 잘 보네!',
   '늦으면 다음 장 기다려요. 스카프도 쉬는 시간이 있어.',
-  '잡화점에서 돌 샀다고? 그 돌은 환불 생각도 없대요!',
+  '잡화점은 아직 준비 중이에요. 이쪽 천부터 한 번 봐요!',
   '남들 거 보지 말고 자기 취향 믿어요. 정 모르겠으면 꽃무늬!',
   '주머니 가벼워졌지? 어깨도 가벼워진 건 내 덕이라고 해요.',
 ];
-export const JUNK_LINES = [
-  '소용 없을수록 좋아요. 우리 가게 물건은 다 제 할 일을 합니다.',
-  '돌멩이요? 종이가 날아갈 때만 출근해요.',
-  '오리는 안 울어요. 지갑도 너무 울리지 말고!',
-  '시계가 세 시라고요? 그럼 간식 시간이지!',
-];
-export const roundAt = (now) => Math.floor(now / ROUND_MS);
-export const nextRound = (now) => (roundAt(now) + 1) * ROUND_MS;
+const minute = 60_000;
+const dayLength = 24 * 60 * minute;
+const seoulOffset = 9 * 60 * minute;
+export const MARKET_DURATION = 45 * minute;
+const openingBands = [[9 * 60, 12 * 60], [13 * 60, 17 * 60], [18 * 60, 22 * 60]];
+
+function openings(day) {
+  return openingBands.map(([from, to], index) => {
+    // The date and time band give everyone the same random draw, including after a restart.
+    let roll = Math.imul(day ^ 0x21f0aaad, index * 2 + 53);
+    roll = Math.imul(roll ^ (roll >>> 16), 0x45d9f3b);
+    roll = Math.imul(roll ^ (roll >>> 16), 0x45d9f3b);
+    roll = (roll ^ (roll >>> 16)) >>> 0;
+    return day * dayLength - seoulOffset + (from + roll % (to - from)) * minute;
+  });
+}
+
+export function marketSession(now) {
+  const day = Math.floor((now + seoulOffset) / dayLength);
+  const today = openings(day);
+  const previous = today.findLast(opening => opening <= now) ?? openings(day - 1)[2];
+  const next = today.find(opening => opening > now) ?? openings(day + 1)[0];
+  const closes = previous + MARKET_DURATION;
+  return { round: previous / minute, open: now < closes, closes, next };
+}
+
+export const chatText = value => typeof value === 'string'
+  ? value.replace(/[\u0000-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/g, ' ').replace(/\s+/g, ' ').trim()
+  : '';
 export const niceName = (name) => [...String(name ?? '').normalize('NFKC').replace(/[^\p{L}\p{N} _.-]/gu, '').trim().replace(/\s+/g, ' ')].slice(0, 14).join('');
 export const fit = (n, min, max, fallback) => Number.isFinite(n) ? Math.max(min, Math.min(max, n)) : fallback;

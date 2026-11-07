@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#15110e">
-  <meta name="description" content="남대문 3D 골목에서 실시간 선착순으로 스카프와 별난 잡화를 모아 보세요.">
+  <meta name="description" content="남대문 3D 골목에서 손님들과 대화하고 하루 세 번 열리는 스카프 장을 구경해 보세요.">
   <title>남대문 스카프 상회</title>
   <link rel="icon" href="./mark.svg" type="image/svg+xml">
   <link rel="stylesheet" href="./style.css">
@@ -14,7 +14,7 @@
     <canvas id="world" aria-label="남대문 시장 3D 골목"></canvas>
     <div id="world-markers" class="markers">
       <button id="scarf-marker" class="marker" data-trade="scarves"><span>✦</span> 스카프 매대</button>
-      <button id="junk-marker" class="marker junk-marker" data-trade="junk"><span>✧</span> 잡화점</button>
+      <button id="junk-marker" class="marker junk-marker" data-trade="junk"><span>✧</span> 잡화점 · 오픈 준비 중</button>
       <button id="vendor-speech" class="speech" type="button" aria-label="상인의 다음 멘트 듣기">
         <span class="speech-speaker"><img id="vendor-avatar" src="./vendor.svg" width="22" height="22" alt=""><strong id="vendor-name">스카프 아저씨</strong><i data-icon="shuffle"></i></span>
         <span id="line">“스카프는 천천히 골라요. 놓친 건 재고 탓 하고!”</span>
@@ -45,7 +45,7 @@
       <div class="live" id="live" title="현재 접속 상태"><span class="lamp"></span><span id="live-mode">장터 연결 중</span><span class="divider"></span><i data-icon="users"></i><b id="online">–</b></div>
       <div class="market-stats">
         <div class="cash"><i data-icon="coin"></i><b id="balance">2,000</b><small>원</small></div>
-        <div class="stock-status"><i data-icon="clock"></i><span>입고</span><strong id="countdown">--:--</strong></div>
+        <div class="stock-status"><i data-icon="clock"></i><span id="clock-label">다음 장</span><strong id="countdown">--:--</strong></div>
       </div>
     </div>
 
@@ -54,7 +54,12 @@
         <div><div class="kicker"><span></span> <span id="shop-kicker"></span></div><h2 id="shop-title"></h2></div>
         <button class="glass icon-btn" id="close-shop" aria-label="상품 목록 닫기"><i data-icon="close"></i></button>
       </div>
-      <div class="shop-summary"><span class="shop-live"><span></span> 선착순 판매</span><b id="shop-stock">–</b></div>
+      <div class="shop-summary" id="shop-summary"><span class="shop-live"><span></span> 선착순 판매</span><b id="shop-stock">–</b></div>
+      <div class="shop-filters" id="shop-filters" aria-label="상품 종류" hidden>
+        <button type="button" data-filter="all" aria-pressed="true">전체</button>
+        <button type="button" data-filter="scarf" aria-pressed="false">스카프</button>
+        <button type="button" data-filter="hanky" aria-pressed="false">손수건</button>
+      </div>
       <div id="shop-items" class="shop-items"></div>
       <p id="shop-feedback" class="shop-feedback" role="status"></p>
     </section>
@@ -64,6 +69,15 @@
       <div class="touch" aria-label="방향키"><button data-dir="w" aria-label="위로">▲</button><button data-dir="a" aria-label="왼쪽">◀</button><button data-dir="s" aria-label="아래로">▼</button><button data-dir="d" aria-label="오른쪽">▶</button></div>
       <div class="stage-hint" id="stage-hint"><span class="hint-dot"></span> 매대 가까이 가면 상품을 볼 수 있어요</div>
       <button id="interact" class="glass interact" hidden><kbd>E</kbd><span>상품 보기</span><i data-icon="arrow"></i></button>
+    </div>
+    <div class="chat-controls">
+      <form id="chat-form" class="chat-form" hidden>
+        <label class="sr-only" for="chat-input">말풍선 채팅</label>
+        <input id="chat-input" type="text" maxlength="80" placeholder="골목 손님에게 한마디" autocomplete="off" required>
+        <button type="submit" class="primary" id="send-chat">보내기</button>
+        <button type="button" class="glass icon-btn" id="close-chat" aria-label="채팅 닫기"><i data-icon="close"></i></button>
+      </form>
+      <button class="glass chat-toggle" id="chat-toggle" type="button" aria-controls="chat-form" aria-expanded="false"><i data-icon="message"></i> 채팅 <kbd>↵</kbd></button>
     </div>
   </main>
   <dialog id="modal" aria-labelledby="modal-title">

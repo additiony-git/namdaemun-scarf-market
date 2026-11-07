@@ -1,4 +1,4 @@
-import { JUNK, JUNK_STOCK, MAP, SHOP_RADIUS, SPAWN, STALLS, STOCK } from './catalog.mjs';
+import { CLOTH, MAP, SHOP_RADIUS, SPAWN, STALLS } from './catalog.mjs';
 
 const ground = -0.09;
 const hex = (h) => { const n = parseInt(h.replace('#', ''), 16); return [(n >> 16) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255]; };
@@ -15,8 +15,7 @@ const up = cross(eye, right);
 const T = (x=0,y=0,z=0,a=0) => (u,v,w) => [x+Math.cos(a)*u+Math.sin(a)*w,y+v,z-Math.sin(a)*u+Math.cos(a)*w];
 const I = T();
 const scarfCounter = T(-1.72, 0, -3.26);
-const junkCounter = T(4.92, 0, -.38, -.43);
-const vendorPosition = { scarves: [-2.06, 0, -.94], junk: junkCounter(-.82, 0, 2.04) };
+const vendorPosition = [-2.06, 0, -.94];
 const cloths = ['e68176','e6bc7b','c95a48','71949a','a798be','78a49e','e5ccac','af715e','eed0ac','686c90'];
 const brick = ['856253','916b58','9d7661','96735e','8c6a57','a67a60','986a55','aa846b','aa8067','896254'];
 const sideBrick = ['a56f56','aa785e','946b62','81594d','b18364'];
@@ -73,38 +72,32 @@ function character(m, x,z,angle, coat, type, phase=0) {
   if(type===0){m.box(t,0,.37,-.218,.35,.38,.19,'deb268');m.box(t,0,.47,-.32,.27,.17,.018,'9d6f45');}
 }
 
-function drawProducts(mesh, stock, goods) {
-  for (let i=0;i<stock.scarf+stock.hanky;i++) {
-    const scarf=i<stock.scarf;
-    // Keep the handkerchief stacks fixed even when a scarf is bought.
-    const slot=scarf?i:STOCK.scarf+i-stock.scarf;
-    const stack=Math.floor(slot/3);
-    const x=-2.12+(stack%8)*.6;
-    const y=.69+(slot%3)*.054;
-    const z=1.16+Math.floor(stack/8)*.29;
-    const w=scarf?.51:.36;
-    mesh.box(scarfCounter,x,y,z,w,.052,.24,cloths[slot%cloths.length]);
-    mesh.box(scarfCounter,x,y+.052,z+.045,w-.065,.004,.027,scarf?'f4d4a8':'f7e5cf');
-  }
-  const colors=['969489','a6728d','ba7456','e7bd57','b49462','927fba','879d80','d6a943'];
-  for (const [index,item] of JUNK.entries()) {
-    const x=-1.42+(index%4)*.92;
-    const shelf=index<4 ? .69 : 1.062;
-    const front=index<4 ? 1.34 : .27;
-    for (let i=0;i<goods[item.id];i++) {
-      const u=x+(i%3-1)*.22;
-      const z=front+(Math.floor(i/3)-.5)*.18;
-      const color=colors[index];
-      if(item.id==='stone')mesh.gem(junkCounter,u,shelf+.071,z,.075,color);
-      else if(item.id==='duck'){
-        mesh.box(junkCounter,u,shelf,z,.15,.09,.12,color);
-        mesh.box(junkCounter,u,shelf+.075,z+.036,.09,.075,.084,color);
-        mesh.box(junkCounter,u,shelf+.095,z+.09,.055,.026,.042,'dc7845');
+function drawProducts(mesh, stock) {
+  let firstSlot=0;
+  for (const item of CLOTH) {
+    for (let i=0;i<stock[item.id];i++) {
+      const slot=firstSlot+i;
+      const stack=Math.floor(slot/3);
+      const x=-2.12+(stack%8)*.6;
+      const y=.69+(slot%3)*.054;
+      const z=1.16+Math.floor(stack/8)*.29;
+      const w=item.group==='scarf'?.51:.36;
+      const top=y+.052;
+      mesh.box(scarfCounter,x,y,z,w,.052,.24,item.color);
+      if(item.pattern==='check'||item.pattern==='stripe'){
+        for(const dz of [-.065,.032,.083])mesh.box(scarfCounter,x,top,z+dz,w-.055,.003,.014,item.ink);
+        if(item.pattern==='check')for(const dx of [-.105,.04,.13])mesh.box(scarfCounter,x+dx,top,z,.014,.003,.20,item.ink);
       } else {
-        mesh.box(junkCounter,u,shelf,z,.14,.13,.12,color);
-        mesh.box(junkCounter,u,shelf+.025,z+.062,.09,.066,.013,'ecd5a8');
+        for(const dx of [-.12,0,.12]){
+          const dz=dx===0?-.05:.045;
+          const size=item.pattern==='wave'?.065:.039;
+          mesh.box(scarfCounter,x+dx,top,z+dz,size,.003,.032,item.ink);
+          if(item.pattern==='flower'||item.pattern==='paisley')mesh.box(scarfCounter,x+dx+.019,top,z+dz-.023,.028,.003,.032,item.ink);
+        }
       }
     }
+    // Reserve the same display position for every fabric even after a stack sells out.
+    firstSlot+=item.count;
   }
 }
 
@@ -209,7 +202,7 @@ function buildScene(m, signs) {
   store({x:-7.5,z:-2.1,w:4.5,a:Math.PI*.46,wall:'9d6f5c',h:4.8,top:'남대문 잡채호떡',bottom:'갓 구운 골목 간식',signColor:'824d35',ink:'ffdb9d',stripes:['b26349','efad70'],kind:'fruit'});
   store({x:-8.2,z:3.1,w:4.7,a:Math.PI*.45,wall:'a57358',h:4.1,top:'오늘은 장날',bottom:'남대문 식품',signColor:'466454',ink:'ffe2a7',stripes:['80917c','d8be8f'],kind:'fruit'});
   const scarf=store({x:-1.72,z:-3.26,w:5.28,a:0,wall:'a67459',h:4.63,top:'남대문 스카프 상회',bottom:'스카프 · 손수건 · 골목의 멋',signColor:'922f2d',ink:'ffe0a4',stripes:['c75b4e','f0c695'],front:1.45});
-  const junk=store({x:4.92,z:-.38,w:3.75,a:-.43,wall:'83646a',h:3.9,top:'쓸데없는 잡화점',bottom:'아무짝에도 쓸모없는 보물',signColor:'55415f',ink:'f5d1ec',stripes:['8a627d','d3a7a7'],front:1.41});
+  const junk=store({x:4.92,z:-.38,w:3.75,a:-.43,wall:'83646a',h:3.9,top:'남대문 잡화점',bottom:'오픈 준비 중',signColor:'55415f',ink:'f5d1ec',stripes:['8a627d','d3a7a7'],front:1.41});
   const near=store({x:8.3,z:3.4,w:3.1,a:-1.12,wall:'8e725f',h:3.25,top:'남문 그릇',bottom:'사기 · 잡화',signColor:'585a45',ink:'f4d295',stripes:['7e8469','d7a77c'],kind:'junk'});
   building(2.5,-9.8,3.9,6.7,0,'916358',['855749','a07560']);
   building(-1.5,-10.9,4.0,6.1,.12,'89635b',['7c544e','a07564']);
@@ -222,7 +215,7 @@ function buildScene(m, signs) {
     m.box(I,x,0,z,2.8+rnd(),5+rnd()*5,2.8,pick(['87646a','906b6b','9d736b','a17971','785b64']));
   }
   signBoard(scarf,-2.13,1.21,1.89,.57,.25,'스카프','', 'f1d298','742f30');
-  signBoard(junk,1.11,1.03,1.82,.62,.32,'보물','', '6b5069','ffd3ae');
+  signBoard(junk,.04,1.02,1.62,1.42,.34,'오픈 준비 중','', '503442','ffe0a8');
   signBoard(near,-.9,1.39,1.62,.46,.24,'그릇','', 'dec092','554b38');
   for(let i=0;i<8;i++) {crate(I,-5.74+(i%2)*.35,-1.2-i*.61,'9a6546',0,.55,.46);}
   crate(junk,-1.57,2.05,'a57750'); crate(junk,-1.57,2.05,'a06b4b',.423,.59,.49);
@@ -247,8 +240,7 @@ function buildScene(m, signs) {
       if(i%4===0&&i>0&&i<22&&za!==6.55) m.face([[x+.07,y,z],[x+.35,y,z-.035],[x+.25,y-.26,z-.035]],pick(['e6a263','bc6052','8f9d80','b58796']),false);
     }
   }
-  character(m,vendorPosition.scarves[0],vendorPosition.scarves[2],.22,'5c4838',1);
-  character(m,vendorPosition.junk[0],vendorPosition.junk[2],-.38,'998391',2);
+  character(m,vendorPosition[0],vendorPosition[2],.22,'5c4838',1);
   for(const [x,z,a,c] of [[-4.22,1.2,.67,'ac6755'],[2.44,-1.27,-.5,'7b9081'],[-4.9,-4.35,.1,'c69c70'],[-3.72,5.25,1.3,'b59b77'],[3.33,5.68,-.6,'8c718c'],[.57,-4.65,-1.1,'9b755c']]) character(m,x,z,a,c,2);
 }
 
@@ -292,14 +284,13 @@ export function createWorld(canvas, markers, onNearby) {
   const world=new Mesh(), signs=[];buildScene(world,signs);
   const staticMesh=buffer(world.data), dynamicMesh=buffer([],gl.DYNAMIC_DRAW), productMesh=buffer([],gl.DYNAMIC_DRAW);
   let productVertices=0;
-  function setStock(stock, goods){
+  function setStock(stock){
     const mesh=new Mesh();
-    drawProducts(mesh,stock,goods);
+    drawProducts(mesh,stock);
     gl.bindBuffer(gl.ARRAY_BUFFER,productMesh);
     gl.bufferData(gl.ARRAY_BUFFER,new Float32Array(mesh.data),gl.DYNAMIC_DRAW);
     productVertices=mesh.data.length/6;
   }
-  setStock(STOCK,JUNK_STOCK);
   const lettering=signs.map(s=>{
     const pos=(x,y,u,v)=>[...s.tr(s.x+x*s.w,s.y+y*s.h,s.z),u,v];
     const a=pos(-.5,-.5,0,1),b=pos(.5,-.5,1,1),c=pos(.5,.5,1,0),d=pos(-.5,.5,0,0);
@@ -309,6 +300,8 @@ export function createWorld(canvas, markers, onNearby) {
   let near='', shopFocused=false, last=0, walk=0, width=1,height=1;
   let cam=[.20,1.07,.75], sx=.11,sy=.17;
   let peers = new Map();
+  let viewerId;
+  const speeches=new Map();
   const labels=markers.scarves.parentElement;
   const dir=new Set();
   function setView(prog){
@@ -381,8 +374,7 @@ export function createWorld(canvas, markers, onNearby) {
       const [x,y]=project(...p);markers[key].style.left=x+'px';markers[key].style.top=y+'px';
       markers[key].hidden=x<35||x>width-35||y<52||y>height-60;
     }
-    const speaker=vendorPosition[near==='junk'?'junk':'scarves'];
-    const [bubbleX,bubbleY]=project(speaker[0],1.32,speaker[2]);
+    const [bubbleX,bubbleY]=project(vendorPosition[0],1.32,vendorPosition[2]);
     const half=markers.speech.offsetWidth/2+10;
     markers.speech.style.left=Math.max(half,Math.min(width-half,bubbleX))+'px';
     markers.speech.style.top=bubbleY+'px';
@@ -392,6 +384,20 @@ export function createWorld(canvas, markers, onNearby) {
       p.label.style.left=x+'px';p.label.style.top=y+'px';
       p.label.hidden=x<26||x>width-26||y<55||y>height-62;
     }
+    for(const [id,bubble] of speeches){
+      if(ms>=bubble.until){
+        bubble.node.remove();
+        speeches.delete(id);
+        continue;
+      }
+      const speaker=id===viewerId?self:peers.get(id);
+      if(!speaker){bubble.node.hidden=true;continue;}
+      const [x,y]=project(speaker.x,id===viewerId?1.36:1.56,speaker.z);
+      bubble.node.hidden=x<0||x>width||y<74||y>height-34;
+      const margin=bubble.node.offsetWidth/2+8;
+      bubble.node.style.left=Math.max(margin,Math.min(width-margin,x))+'px';
+      bubble.node.style.top=y+'px';
+    }
     requestAnimationFrame(frame);
   }
   requestAnimationFrame(frame);
@@ -399,7 +405,22 @@ export function createWorld(canvas, markers, onNearby) {
     dir, position:()=>({x:+self.x.toFixed(2),z:+self.z.toFixed(2)}), moving:()=>motion,
     focusShop(active){shopFocused=active;},
     setStock,
-    setPeers(list){
+    showChat(speech, remaining){
+      const id=speech.playerId;
+      const existing=speeches.get(id);
+      if(existing?.sentAt>=speech.sentAt)return;
+      const node=existing?.node??document.createElement('span');
+      if(!existing){
+        node.className='player-speech';
+        node.hidden=true;
+        labels.append(node);
+      }
+      node.classList.toggle('own-speech',id===viewerId);
+      node.textContent=speech.text;
+      speeches.set(id,{node,sentAt:speech.sentAt,until:performance.now()+remaining});
+    },
+    setPeers(list, selfId){
+      viewerId=selfId;
       const current=new Map();
       for(const p of list){
         const old=peers.get(p.id);
