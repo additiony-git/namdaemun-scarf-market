@@ -179,13 +179,19 @@ kbd { display: inline-grid; place-items: center; min-width: 21px; height: 22px; 
 .shop-soldout { border-color: #e9a45caa; background: #60392289; }
 .shop-soldout p span { color: var(--muted); font-size: 9px; }
 .daily-rare { margin-bottom: 7px; padding: 6px 7px; border: 1px solid #d9a2628c; border-radius: 6px; color: #ffdd91; background: #543923; font-size: 10px; font-weight: 900; }
-.rare-tag { display: inline-block; margin-left: 5px; padding: 1px 4px; border-radius: 3px; background: #e1b461; color: #332010; font-size: 8px; vertical-align: 1px; white-space: nowrap; }
+.rare-tag { display: inline-flex; align-items: center; gap: 3px; margin-left: 5px; padding: 1px 5px; border-radius: 4px; background: #f1c368; color: #382411; font-size: 9px; font-weight: 900; vertical-align: 1px; white-space: nowrap; }
+.rare-tag > span { color: #805019; }
 .closed-tag { color: var(--muted); font-size: 9px; font-weight: 800; letter-spacing: .12em; }
 .shop-items { overflow: auto; overscroll-behavior: contain; }
 .shop-feedback { margin: 0; font-size: 11px; line-height: 1.4; color: var(--gold); }
 .shop-feedback:not(:empty) { padding-top: 7px; }
+.test-effect { flex: none; margin-top: 8px; padding: 6px 8px; border: 1px dashed #c68c5a; border-radius: 6px; color: #f6d099; background: #412c20; font-size: 11px; font-weight: 900; }
+.test-effect:hover, .test-effect[aria-pressed=true] { background: #694324; }
 .item { display: flex; align-items: center; gap: 8px; padding: 8px 0; border-top: 1px solid #4b3528; }
 .item-pic { display: grid; place-items: center; flex: none; width: 39px; height: 39px; border-radius: 8px; background: #3d2c22; font-size: 21px; }
+.item.rare-item, .shop .item.rare-item { margin: 3px 0; padding: 7px 8px; border: 1px solid #c49352; border-radius: 7px; background: linear-gradient(115deg, #5b3c26, #34261e 70%); }
+.rare-item .item-pic { border: 1px solid #e2b86b83; background: #6e4c30; }
+.rare-item .item-info strong { color: #ffe3ac; }
 .swatch { width: 24px; height: 23px; border-radius: 3px; border: 1px solid #ffeed85c; background-color: var(--cloth); transform: rotate(-9deg); box-shadow: 2px 3px #1d1510a0; }
 .swatch.stripe { background-image: repeating-linear-gradient(115deg, transparent 0 5px, var(--ink) 5px 7px); }
 .swatch.dot { background-image: radial-gradient(circle, var(--ink) 18%, transparent 27%); background-size: 8px 8px; }

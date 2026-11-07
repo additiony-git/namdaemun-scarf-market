@@ -47,6 +47,7 @@ let token=read(tokenKey), model, world, mode=endpoint?'loading':'solo', modal=''
 let muted=true, audioCtx, toastTimer, acting=false;
 let profileTab='avatar', profileFeedback='';
 let nearby='', shop='', shopSignature='', inventory, feed, retryFeedAt=0, transitionRequested=0;
+let soldoutPreview=false, soldoutPreviewTimer;
 let lastLine=0, filter='all', sendingChat=false;
 const seenChat=new Set();
 const products=[...MARKET_ITEMS,...JUNK];
@@ -132,9 +133,34 @@ function marketAvailability(snapshot=inventory){
   if(!snapshot.open)return 'waiting';
   return MARKET_ITEMS.some(item=>snapshot.stock[item.id]>0)?'selling':'soldout';
 }
+function displayedAvailability(){
+  return soldoutPreview?'soldout':marketAvailability();
+}
 function nextSaleAt(snapshot=inventory){
   if(snapshot.testing&&marketSession(snapshot.closes).open)return snapshot.closes;
   return snapshot.next;
+}
+function playSoldoutEffect(){
+  const bubble=$('vendor-speech');
+  bubble.classList.remove('soldout-pop');
+  requestAnimationFrame(()=>{
+    if(displayedAvailability()==='soldout')bubble.classList.add('soldout-pop');
+  });
+  const next=openingTime.format(nextSaleAt());
+  toast((soldoutPreview?'완판 효과 미리보기':'이번 장 완판!')+' · '+next+'에 다시 와요.');
+}
+function setSoldoutPreview(active){
+  clearTimeout(soldoutPreviewTimer);
+  soldoutPreview=active;
+  if(!active)$('vendor-speech').classList.remove('soldout-pop');
+  world?.setStock(active?closedStock:inventory.stock);
+  line();
+  tick();
+  renderShop();
+  if(active){
+    playSoldoutEffect();
+    soldoutPreviewTimer=setTimeout(()=>setSoldoutPreview(false),8000);
+  }
 }
 function setInventory(data){
   if(!data.stock||typeof data.open!=='boolean'||!Number.isSafeInteger(data.revision))return;
@@ -143,14 +169,11 @@ function setInventory(data){
   const previousNext=inventory&&nextSaleAt();
   inventory={stock:data.stock,revision:data.revision,next:data.next,open:data.open,closes:data.closes,testing:Boolean(data.testing),rare:data.rare};
   const current=marketAvailability();
-  world?.setStock(inventory.stock);
+  const becameSoldout=previous==='selling'&&current==='soldout';
+  if(soldoutPreview&&(!inventory.testing||becameSoldout))setSoldoutPreview(false);
+  world?.setStock(soldoutPreview?closedStock:inventory.stock);
   if(previous!==current||previousNext!==nextSaleAt())line();
-  if(previous==='selling'&&current==='soldout'){
-    const bubble=$('vendor-speech');
-    bubble.classList.remove('soldout-pop');
-    requestAnimationFrame(()=>bubble.classList.add('soldout-pop'));
-    toast('이번 장 완판! '+openingTime.format(nextSaleAt())+'에 다시 와요.');
-  }
+  if(becameSoldout)playSoldoutEffect();
   tick();
   renderShop();
 }
@@ -206,7 +229,7 @@ function tick(){
   const transitionPassed=transition<=Date.now()+timeOffset;
   if(transitionPassed&&mode==='solo'){setModel(demo());return;}
   if(transitionPassed&&mode==='online'&&transitionRequested!==transition){transitionRequested=transition;queue(0);}
-  const waiting=!inventory.open||marketAvailability()==='soldout';
+  const waiting=!inventory.open||displayedAvailability()==='soldout';
   const deadline=waiting?nextSaleAt():transition;
   const ms=Math.max(0,deadline-Date.now()-timeOffset);
   const seconds=Math.ceil(ms/1000);
@@ -251,10 +274,11 @@ function itemRow(item, detail, end){
   const picture=item.pattern
     ? '<span class="item-pic" aria-hidden="true"><span class="swatch '+item.pattern+'" style="--cloth:'+item.color+';--ink:'+item.ink+'"></span></span>'
     : '<span class="item-pic" aria-hidden="true">'+item.pic+'</span>';
-  const rare=item.rare?'<span class="rare-tag">레어</span>':'';
+  const rare=item.rare?'<span class="rare-tag"><span aria-hidden="true">✦</span> 레어</span>':'';
   return '<div class="item'+(item.rare?' rare-item':'')+'">'+picture+'<span class="item-info"><strong>'+item.name+rare+'</strong><small>'+detail+'</small></span>'+end+'</div>';
 }
 function openShop(type){
+  if(soldoutPreview&&type!=='scarves')setSoldoutPreview(false);
   shop=type;
   filter='all';
   shopSignature='';
@@ -270,13 +294,19 @@ function openShop(type){
 function closeShop(){
   shop='';
   $('shop').hidden=true;
+  if(soldoutPreview)setSoldoutPreview(false);
   world?.focusShop(false);
   updateInteract();
 }
 function renderShop(){
   if(!shop)return;
   const body=$('shop-items');
-  const status=marketAvailability();
+  const status=displayedAvailability();
+  const previewButton=$('soldout-preview');
+  previewButton.hidden=shop!=='scarves'||!inventory?.testing;
+  previewButton.disabled=acting;
+  previewButton.setAttribute('aria-pressed',String(soldoutPreview));
+  previewButton.textContent=soldoutPreview?'미리보기 닫기':'✦ 완판 효과 보기';
   $('shop-summary').hidden=shop==='junk'||status!=='selling';
   $('shop-filters').hidden=shop==='junk'||status!=='selling';
   $('daily-rare').hidden=shop==='junk'||status!=='selling'||!inventory?.rare;
@@ -286,7 +316,7 @@ function renderShop(){
     return;
   }
   if(!model||!inventory){body.innerHTML='<p class="empty">상품을 불러오고 있어요.</p>';return;}
-  const signature=[inventory.revision,model.player.cash,mode,acting,filter].join(':');
+  const signature=[inventory.revision,model.player.cash,mode,acting,filter,soldoutPreview].join(':');
   if(signature===shopSignature)return;
   shopSignature=signature;
   if(!inventory.open){
@@ -294,7 +324,8 @@ function renderShop(){
     return;
   }
   if(status==='soldout'){
-    body.innerHTML='<div class="shop-closed shop-soldout"><span class="closed-tag">SOLD OUT</span><strong>이번 장 완판!</strong><p>다음 장은 '+openingTime.format(nextSaleAt())+'에 열려요. <span>한국 시간</span></p></div>';
+    const label=soldoutPreview?'테스트 미리보기':'SOLD OUT';
+    body.innerHTML='<div class="shop-closed shop-soldout"><span class="closed-tag">'+label+'</span><strong>이번 장 완판!</strong><p>다음 장은 '+openingTime.format(nextSaleAt())+'에 열려요. <span>한국 시간</span></p></div>';
     return;
   }
   for(const button of $('shop-filters').querySelectorAll('button'))button.setAttribute('aria-pressed',String(button.dataset.filter===filter));
@@ -337,7 +368,7 @@ function wardrobe(){
   for(const item of SCARVES)if(owned.has(item.id))scarves[item.id]=item;
   const look=normalizeLook(model.player.look);
   const fields=Object.entries({...AVATAR_OPTIONS,scarf:scarves}).map(([part,options])=>{
-    const choices=Object.entries(options).map(([id,option])=>'<option value="'+id+'"'+(look[part]===id?' selected':'')+'>'+option.name+'</option>').join('');
+    const choices=Object.entries(options).map(([id,option])=>'<option value="'+id+'"'+(look[part]===id?' selected':'')+'>'+(option.rare?'✦ 레어 · ':'')+option.name+'</option>').join('');
     return '<label for="look-'+part+'">'+partLabels[part]+'</label><select id="look-'+part+'" name="'+part+'">'+choices+'</select>';
   }).join('');
   return '<form class="profile-form" id="profile-form"><fieldset id="profile-fields"><div class="profile-editor">'+
@@ -431,11 +462,13 @@ async function sendChat(){
   }
 }
 function line(){
-  const state=marketAvailability();
+  const state=displayedAvailability();
   const bubble=$('vendor-speech');
   const reopen=$('vendor-reopen');
   bubble.dataset.state=state;
-  $('vendor-soldout').hidden=state!=='soldout';
+  const badge=$('vendor-soldout');
+  badge.hidden=state!=='soldout';
+  badge.textContent=soldoutPreview?'미리보기':'완판!';
   reopen.hidden=state!=='soldout'&&state!=='waiting';
   let message;
   if(state==='soldout')message='이건 아닌 거 같아… 벌써 다 팔렸네! 다음 장에 다시 와요!';
@@ -566,6 +599,9 @@ $('close-modal').onclick=()=>dialog.close();
 dialog.addEventListener('click', e=>{if(e.target===dialog){const r=dialog.getBoundingClientRect();if(e.clientX<r.left||e.clientX>r.right||e.clientY<r.top||e.clientY>r.bottom)dialog.close();}});
 dialog.addEventListener('close',()=>{modal='';});
 $('vendor-speech').onclick=()=>line();
+$('soldout-preview').onclick=()=>{
+  if(inventory?.testing&&shop==='scarves'&&!acting)setSoldoutPreview(!soldoutPreview);
+};
 $('sound').onclick=()=>{muted=!muted;$('sound').setAttribute('aria-pressed',String(!muted));$('sound').firstElementChild.dataset.icon=muted?'mute':'sound';icons($('sound'));if(!muted)chime();};
 const fullscreen=$('fullscreen');
 fullscreen.onclick=async()=>{
