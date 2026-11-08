@@ -367,7 +367,7 @@ function setText(id,text){const node=$(id);if(node.textContent!==text)node.textC
 function showMarketHours(){
   const rows=FEATURED_MARKETS.map(({hour,name})=>{
     const time=String(hour).padStart(2,'0')+':00';
-    return '<li><span>'+name+' · 레어 확정</span><time datetime="'+time+'">'+time+'</time></li>';
+    return '<li><span>'+name+'</span><time datetime="'+time+'">'+time+'</time></li>';
   }).join('');
   $('market-hours-list').innerHTML=rows;
   $('watch-hours-list').innerHTML=rows;

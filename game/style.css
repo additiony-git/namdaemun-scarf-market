@@ -90,12 +90,14 @@ canvas { position: absolute; inset: 0; display: block; width: 100%; height: 100%
 .market-hours-card { padding: 7px 9px; }
 .market-hours-heading { display: flex; align-items: baseline; flex-wrap: wrap; justify-content: space-between; gap: 2px 7px; }
 .market-hours-heading strong { color: #fff0d8; font-size: 12px; }
-.market-hours-heading small, .watch-hours > small { color: #e4ccb2; font-size: 10px; }
-.market-hours-list { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 4px; list-style: none; padding: 0; margin: 5px 0 0; }
+.market-hours-heading small { color: #e4ccb2; font-size: 10px; }
+.market-hours-featured { display: flex; align-items: baseline; gap: 6px; margin: 5px 0 3px; color: #ffe09b; font-size: 11px; font-weight: 850; }
+.market-hours-featured span { color: #e4ccb2; font-size: 10px; font-weight: 600; }
+.market-hours-list { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 4px; list-style: none; padding: 0; margin: 0; }
 .market-hours-list li { display: grid; grid-template-columns: 1fr; gap: 1px; padding: 3px 2px; border-radius: 4px; background: #493021; text-align: center; }
 .market-hours-list span { color: #e4ccb2; font-size: 10px; }
 .market-hours-list time { color: #ffe09b; font-size: 13px; font-weight: 850; font-variant-numeric: tabular-nums; }
-.market-hours-note { display: block; margin-top: 4px; color: #e4ccb2; font-size: 10px; }
+.market-hours-note { display: block; margin-top: 3px; color: #e4ccb2; font-size: 10px; word-break: keep-all; }
 .queue-card { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 7px 11px; }
 .queue-card div { min-width: 0; }
 .queue-title { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 6px; }
@@ -152,7 +154,7 @@ canvas { position: absolute; inset: 0; display: block; width: 100%; height: 100%
 .watch-hours { pointer-events: auto; padding: 6px 8px; }
 .watch-hours summary { cursor: pointer; color: #ffe09b; font-size: 11px; font-weight: 850; }
 .watch-hours[open] { width: min(225px, calc(100vw - 2 * var(--edge))); }
-.watch-hours > small { display: block; margin-top: 4px; }
+.watch-hours .market-hours-heading { margin-top: 4px; }
 .watch-panel { position: absolute; display: flex; flex-direction: column; top: calc(var(--top) + 45px); right: var(--edge); bottom: calc(var(--bottom) + 49px); width: min(335px, 40vw); padding: 12px; border: 1px solid #ae8051; border-radius: 9px; background: #231911ee; }
 .watch-panel #watch-refresh { align-self: flex-start; margin-top: 6px; }
 .watch-footer { position: absolute; bottom: var(--bottom); left: var(--edge); right: var(--edge); display: flex; align-items: center; justify-content: space-between; gap: 6px; }
