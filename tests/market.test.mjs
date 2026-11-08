@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { DatabaseSync } from 'node:sqlite';
 import { Market, endpoint } from '../server/market.mjs';
-import { CHAT_FEED_MS, CHAT_MS, DEFAULT_LOOK, LOBBY_CHAT_MS, MARKET_CAPACITY, MARKET_DURATION, RARE_PICKUP_MS, RARE_SCARVES, ROUND_CURRENCY, marketRare, marketSession, roundCloth, roundStock, seoulDay } from '../game/catalog.mjs';
+import { CHAT_FEED_MS, CHAT_MS, DEFAULT_LOOK, LOBBY_CHAT_MS, MARKET_CAPACITY, MARKET_DURATION, MARKET_EXIT_MS, RARE_PICKUP_MS, RARE_SCARVES, ROUND_CURRENCY, marketRare, marketSession, roundCloth, roundStock, seoulDay } from '../game/catalog.mjs';
 
 const midnight=Date.parse('2026-11-08T00:00:00+09:00');
 const openingHours=[12,20,22];
@@ -132,10 +132,43 @@ test('the last seat admits one contender and the other can watch inventory witho
   assert.equal(sync(waiting,'market',start+700).currencyGrant,ROUND_CURRENCY);
   const expired=market.marketStatus(start+31_000);
   assert.equal(expired.marketOnline,0);
-  const closed=sync(waiting,'market',start+MARKET_DURATION);
+  const closed=sync(waiting,'market',start+MARKET_DURATION+MARKET_EXIT_MS);
   assert.equal(closed.room,'market');
   assert.equal(closed.currencyGrant,null);
   assert.equal(closed.marketOnline,1);
+});
+
+test('closing freezes admission and the next round discards old seats and wait numbers', t=>{
+  const data=setup();t.after(data.close);
+  const market=data.create();
+  const close=start+MARKET_DURATION;
+  const graceEnds=close+MARKET_EXIT_MS;
+  const join=(i,now)=>market.action({action:'join'},now,'last-round-'+i);
+  const seats=Array.from({length:MARKET_CAPACITY},(_,i)=>join(i,close-5_000));
+  const seated=seats[0];
+  const waiting=join('waiting',close-2);
+  const guest=market.action({action:'join',room:'lobby'},close-1);
+  const sync=(person,now,instance=market,entryRound=person.lastClose)=>
+    instance.action({action:'sync',token:person.token,entryRound,watch:true},now);
+  assert.equal(waiting.queuePosition,1);
+  assert.equal(market.marketStatus(close).lastClose,close);
+  assert.equal(market.marketStatus(close).marketOnline,MARKET_CAPACITY);
+  assert.equal(sync(seated,close).room,'market');
+  assert.equal(sync(waiting,close).admission,'closing');
+  assert.equal(join('new',graceEnds-1).admission,'closing');
+  assert.equal(market.action({action:'buy',token:seated.token,item:'scarf',entryRound:seated.lastClose},close).status,409);
+  assert.equal(market.marketStatus(graceEnds).marketOnline,0);
+
+  // Expired wait numbers remain expired after a restart, even inside the queue lease.
+  const restarted=data.create();
+  const first=sync(guest,graceEnds,restarted,close);
+  assert.equal(first.room,'market');
+  assert.equal(first.marketOnline,1);
+  assert.equal(sync(seated,graceEnds+1,restarted).admission,'closed');
+  const expired=sync(waiting,graceEnds+1,restarted);
+  assert.equal(expired.admission,'closed');
+  assert.equal(expired.queuePosition,null);
+  assert.equal(sync(waiting,graceEnds+2,restarted,close).room,'market');
 });
 
 test('queues survive restarts, prevent passing the first guest, and drop canceled or expired requests', t=>{
@@ -442,8 +475,10 @@ test('a regular market can close after a test ends during its opening', t=>{
   const from=start-90_000,until=start+90_000;
   const market=data.create({from,until});
   const guest=market.action({action:'join'},from);
-  market.action({action:'sync',token:guest.token},until);
-  const bought=market.action({action:'buy',token:guest.token,item:'scarf'},until+1);
+  const closedTest=market.action({action:'sync',token:guest.token,entryRound:guest.lastClose},until+MARKET_EXIT_MS);
+  assert.equal(closedTest.admission,'closed');
+  market.action({action:'sync',token:guest.token,entryRound:closedTest.lastClose},until+MARKET_EXIT_MS);
+  const bought=market.action({action:'buy',token:guest.token,item:'scarf'},until+MARKET_EXIT_MS+1);
   const closed=market.inventory(start+MARKET_DURATION);
   assert.equal(guest.testing,true);
   assert.equal(bought.testing,undefined);

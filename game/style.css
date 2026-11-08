@@ -555,6 +555,18 @@ dialog::backdrop { background: #130e0bc9; backdrop-filter: blur(3px); }
 .profile-save { display: flex; gap: 8px; align-items: center; justify-content: space-between; }
 .profile-save .primary { padding: 8px 12px; }
 .dialog-feedback { margin: 0; padding-top: 6px; color: var(--gold); font-size: 12px; }
+.market-closing {
+  position: absolute; z-index: 6; inset: 0; display: grid; place-items: center;
+  padding: var(--top) var(--edge) var(--bottom); background: #190f0cc9; text-align: center;
+}
+.market-closing-card {
+  width: min(100%, 420px); padding: clamp(16px, 6vw, 32px); border: 1px solid #b9884d; border-radius: 14px;
+  background: var(--glass); box-shadow: 0 12px 42px #100905b8;
+}
+.market-closing-card h2 { margin: 0; font-size: clamp(20px, 5vw, 29px); }
+.market-closing-card p { margin: 6px 0 12px; }
+.market-closing-card strong { color: var(--gold); font-size: 38px; font-variant-numeric: tabular-nums; }
+.market-closing-card small { color: var(--muted); }
 #toast { position: fixed; z-index: 5; bottom: calc(var(--bottom) + 45px); left: 50%; max-width: 88vw; transform: translate(-50%, 12px); opacity: 0; pointer-events: none; background: #36271d; border: 1px solid #bc9052; border-radius: 8px; padding: 8px 11px; color: #fff0d7; font-size: 12px; transition: .18s; }
 #toast.show { opacity: 1; transform: translate(-50%, 0); }
 body:has(#chat-form:not([hidden])) #toast { bottom: calc(var(--bottom) + 92px); }

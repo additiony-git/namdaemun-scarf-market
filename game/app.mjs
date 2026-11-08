@@ -1,4 +1,4 @@
-import { AVATAR_OPTIONS, CHAT_FEED_MS, CHAT_LIMIT, CHAT_MS, DEFAULT_LOOK, EMPTY_STOCK, JUNK, LINES, LOBBY_CHAT_LIMIT, LOBBY_CHAT_MS, MARKET_CAPACITY, MARKET_HOURS, MARKET_ITEMS, RARE_PICKUP_MS, ROUND_CURRENCY, SCARVES, SPAWN, WAITING_LINES, avatarOptionsFor, chatText, marketRare, marketSession, niceName, normalizeLook, roundCloth, roundStock, seoulDay, seoulDayStart } from './catalog.mjs';
+import { AVATAR_OPTIONS, CHAT_FEED_MS, CHAT_LIMIT, CHAT_MS, DEFAULT_LOOK, EMPTY_STOCK, JUNK, LINES, LOBBY_CHAT_LIMIT, LOBBY_CHAT_MS, MARKET_CAPACITY, MARKET_EXIT_MS, MARKET_HOURS, MARKET_ITEMS, RARE_PICKUP_MS, ROUND_CURRENCY, SCARVES, SPAWN, WAITING_LINES, avatarOptionsFor, chatText, lastMarketClose, marketRare, marketSession, niceName, normalizeLook, roundCloth, roundStock, seoulDay, seoulDayStart } from './catalog.mjs';
 import { MARKET_API } from './config.mjs';
 import { createWorld, drawAvatarPreview } from './world.mjs';
 
@@ -47,6 +47,7 @@ function write(key,value){temporary.set(key,value);try{localStorage.setItem(key,
 const blank = () => ({ id:'solo', name:'새내기 손님', cash:0, collected:0, rank:null });
 let token=read(tokenKey), model, world, mode=endpoint?'loading':'solo', modal='', busy=false, timeOffset=0, misses=0, syncTimer;
 let enteredMarket=false, entryRequested=false, waitingPosition=0, cancelQueue=false, roomRevision=0;
+let entryRound;
 let watchingMarket=false;
 let feedWatching=false;
 let queueAdvancePending=false, marketPositionSent;
@@ -67,6 +68,8 @@ const openingTime=new Intl.DateTimeFormat('ko-KR',{timeZone:'Asia/Seoul',month:'
 const closedStock=EMPTY_STOCK;
 const shortTime=new Intl.DateTimeFormat('ko-KR',{timeZone:'Asia/Seoul',hour:'2-digit',minute:'2-digit',hourCycle:'h23'});
 const dialog=$('modal');
+const closingNotice=$('market-closing');
+const roundEndedMessage='이번 장이 마감되어 시작 화면으로 돌아왔어요. 다음 장은 선착순으로 다시 입장해 주세요.';
 const activeRoom=()=>enteredMarket?'market':'lobby';
 const lobbySyncDelay=endpoint.startsWith('https://')?240_000:5_000;
 const marketSyncDelay=6_000;
@@ -139,7 +142,7 @@ async function request(action, extra={}, room=activeRoom()){
   if(room==='market'&&enteredMarket)marketPositionSent={...pos,at:Date.now()};
   const response=await fetch(endpoint,{
     method:'POST', headers:{'Content-Type':'text/plain;charset=UTF-8'},
-    body:JSON.stringify({action, token, room, watch:watchingMarket&&!feedWatching, pos, ...extra}), signal:AbortSignal.timeout(6000),
+    body:JSON.stringify({action, token, room, watch:watchingMarket&&!feedWatching, pos, entryRound:room==='market'?entryRound:undefined, ...extra}), signal:AbortSignal.timeout(6000),
   });
   let data;
   try {data=await response.json();}catch{throw Error('장터 서버에 연결할 수 없어요.');}
@@ -311,7 +314,9 @@ function connectFeed(){
       else if(update.type==='rare-pickup')showRarePickup(update.pickup);
       else if(update.type==='market-status'){
         const opened=inventory&&!inventory.open&&update.open;
+        noteSchedule(update);
         setInventory(update);
+        tick();
         if(opened&&!busy)queue(0);
       }
     } catch { /* wait for the next server sync */ }
@@ -338,12 +343,17 @@ function noteSchedule(data){
   if(!Number.isFinite(data.now)||!Number.isFinite(data.next)||!Number.isFinite(data.closes)||
     ![1,2,3].includes(data.nextSlot)||typeof data.open!=='boolean'||data.now<(entranceSchedule?.now??0))return;
   timeOffset=data.now-Date.now();
-  const { now, round, slot, nextSlot, open, next, closes, testing }=data;
-  entranceSchedule={ now, round, slot, nextSlot, open, next, closes, testing };
+  const { now, round, slot, nextSlot, open, next, closes, testing, lastClose }=data;
+  entranceSchedule={ now, round, slot, nextSlot, open, next, closes, testing, lastClose };
 }
 function scheduleAt(now){
   const current=entranceSchedule;
   return current&&now<(current.open?current.closes:current.next)?current:marketSession(now);
+}
+function lastCloseAt(now){
+  const current=entranceSchedule;
+  if(current?.testing&&now<current.closes)return current.lastClose??lastMarketClose(current.now);
+  return Math.max(lastMarketClose(now),current?.lastClose??0,current?.testing?current.closes:0);
 }
 function countdownText(ms){
   const seconds=Math.ceil(Math.max(0,ms)/1000);
@@ -369,32 +379,44 @@ function setWatchStatus(data){
   }
 }
 function seatsFull(){
-  return watchStatus?.marketOnline >= (watchStatus?.marketCapacity??MARKET_CAPACITY);
+  return marketOccupancy(Date.now()+timeOffset) >= (watchStatus?.marketCapacity??MARKET_CAPACITY);
+}
+function marketOccupancy(now){
+  const resetAt=lastCloseAt(now)+MARKET_EXIT_MS;
+  return now>=resetAt&&watchStatus?.now<resetAt?0:watchStatus?.marketOnline??0;
 }
 function renderEntrance(session, now){
   const open=session.open&&now<session.closes;
+  const resetAt=lastCloseAt(now)+MARKET_EXIT_MS, closing=now<resetAt;
   const full=seatsFull();
   const button=$('enter-market');
-  button.disabled=cancelQueue||(entryRequested&&!waitingPosition);
-  const label=waitingPosition?'내 대기 '+waitingPosition+'번'
+  button.disabled=closing||cancelQueue||(entryRequested&&!waitingPosition);
+  const label=closing?'장 마감 정리 중':waitingPosition?'내 대기 '+waitingPosition+'번'
     :entryRequested?'입장 확인 중':full?'대기자 입장하기':endpoint?'선착순 입장하기':'시장 입장하기';
   setText('enter-market-label',label);
   if(waitingPosition)button.setAttribute('aria-label',label+' · 관람 화면 열기');
   else button.removeAttribute('aria-label');
   $('queue-card').dataset.state=waitingPosition?'queue':full?'full':open?'open':'waiting';
-  $('queue-full').hidden=!full;
-  setText('queue-heading',open?(session.testing?'테스트 장 판매 중':session.slot+'차 판매 중'):session.nextSlot+'차 개장까지');
+  $('queue-full').hidden=closing||!full;
+  setText('queue-heading',closing?'다음 선착순 입장까지':open?(session.testing?'테스트 장 판매 중':session.slot+'차 판매 중'):session.nextSlot+'차 개장까지');
   const nextDate=seoulDay(session.next)===seoulDay(now)?shortTime.format(session.next):openingTime.format(session.next);
-  const marketOnline=watchStatus?.marketOnline??0;
+  const marketOnline=marketOccupancy(now);
   const capacity=watchStatus?.marketCapacity??MARKET_CAPACITY;
   const entryDetail=endpoint?'입장 '+marketOnline+'/'+capacity+'명':'혼자 체험';
   const entryNote=endpoint&&!full?' · 선착순':'';
-  setText('queue-detail',(open?'':'개장 '+nextDate+' · ')+entryDetail+entryNote);
-  setText('queue-countdown',countdownText((open?session.closes:session.next)-now));
+  setText('queue-detail',closing?'이번 장 판매가 끝났어요.':(open?'':'개장 '+nextDate+' · ')+entryDetail+entryNote);
+  setText('queue-countdown',countdownText((closing?resetAt:open?session.closes:session.next)-now));
+}
+function announceEntrance(message){
+  const notice=$('entrance-notice');
+  notice.textContent=message;
+  notice.hidden=false;
+  notice.focus({preventScroll:true});
 }
 function returnToEntrance(message='시작 화면으로 돌아왔어요.'){
   if(!enteredMarket)return;
   enteredMarket=false;
+  entryRound=undefined;
   syncMarketSound();
   roomRevision++;
   closeFeed();
@@ -402,6 +424,8 @@ function returnToEntrance(message='시작 화면으로 돌아왔어요.'){
   setChatOpen(false);
   nearby=false;
   closeShop();
+  clearTimeout(soldoutPreviewTimer);
+  soldoutPreview=false;
   clearSoldoutEffect();
   clearTimeout(toastTimer);
   $('toast').classList.remove('show');
@@ -415,15 +439,54 @@ function returnToEntrance(message='시작 화면으로 돌아왔어요.'){
   $('entrance').hidden=false;
   const now=Date.now()+timeOffset, current=scheduleAt(now);
   renderEntrance(current,now);
-  const notice=$('entrance-notice');
-  notice.textContent=message;
-  notice.hidden=false;
-  notice.focus({preventScroll:true});
+  announceEntrance(message);
   status();
   if(endpoint)queue(0);
 }
+function finishRound(){
+  entryRequested=false;
+  waitingPosition=0;
+  entryRound=undefined;
+  queueAdvancePending=false;
+  closingNotice.hidden=true;
+  $('market-ui').inert=false;
+  $('watch-ui').inert=false;
+  $('vendor-marker').inert=false;
+  if(enteredMarket)returnToEntrance(roundEndedMessage);
+  else{
+    roomRevision++;
+    closeSpectator();
+    announceEntrance(roundEndedMessage);
+    queue(0);
+  }
+}
+function handleRoundEnd(now){
+  const close=lastCloseAt(now);
+  if(entryRound===undefined||entryRound>=close)return false;
+  const left=close+MARKET_EXIT_MS-now;
+  if(left<=0)finishRound();
+  else if(enteredMarket||watchingMarket){
+    setText('market-closing-count',String(Math.ceil(left/1000)));
+    if(closingNotice.hidden){
+      if(dialog.open)dialog.close();
+      setChatOpen(false);
+      world?.dir.clear();
+      clearSoldoutEffect();
+      $('market-ui').inert=true;
+      $('watch-ui').inert=true;
+      $('vendor-marker').inert=true;
+      closingNotice.hidden=false;
+      $('market-closing-title').focus({preventScroll:true});
+    }
+  }
+  return true;
+}
 function tick(){
   const now=Date.now()+timeOffset, session=scheduleAt(now);
+  if(handleRoundEnd(now)){
+    if(!enteredMarket&&!watchingMarket)renderEntrance(session,now);
+    return;
+  }
   if(!enteredMarket){
     renderEntrance(session,now);
     const boundary=entranceSchedule?.open?entranceSchedule.closes:entranceSchedule?.next;
@@ -738,6 +801,7 @@ function refreshSpectator(){
 function openSpectator(message){
   if(enteredMarket)return;
   if(!watchingMarket){
+    entryRound??=lastCloseAt(Date.now()+timeOffset);
     if(dialog.open)dialog.close();
     setLobbyChatOpen(false,false);
     watchingMarket=true;
@@ -763,6 +827,7 @@ function closeSpectator(){
   if(!watchingMarket)return;
   subscribeToWatch(false);
   watchingMarket=false;
+  if(!entryRequested&&!enteredMarket)entryRound=undefined;
   syncMarketSound();
   $('watch-ui').hidden=true;
   $('world').setAttribute('aria-label','남대문 시장 3D 골목');
@@ -818,7 +883,8 @@ async function postRoomChat(text,room,revision){
   const seat=await request('sync',{watch:true},'market');
   if(revision!==roomRevision)return;
   if(seat.room==='lobby'){
-    showMarketQueue(seat,'시장에 다시 들어가면 작성한 채팅을 이어서 보낼 수 있어요.');
+    noteSchedule(seat);
+    if(!handleRoundEnd(Date.now()+timeOffset))showMarketQueue(seat,'시장에 다시 들어가면 작성한 채팅을 이어서 보낼 수 있어요.');
     return;
   }
   setModel(seat);
@@ -945,6 +1011,7 @@ function showMarketQueue(data,message=admissionMessage(data)){
 }
 async function connect(){
   if(!endpoint)return;
+  if(handleRoundEnd(Date.now()+timeOffset))return;
   if(busy){queue(800);return;}
   if(document.hidden){queue(5000);return;}
   const requestingEntry=entryRequested;
@@ -959,6 +1026,8 @@ async function connect(){
     try{data=await request(token?'sync':'join',extra,room);}
     catch(e){if(e.status!==401||revision!==roomRevision)throw e;data=await request('join',extra,room);}
     if(revision!==roomRevision)return;
+    noteSchedule(data);
+    if(handleRoundEnd(Date.now()+timeOffset))return;
     const wasWaiting=Boolean(waitingPosition);
     cancelQueue=false;
     if(enteredMarket&&data.room==='lobby'){
@@ -1133,7 +1202,7 @@ $('exit-market').onclick=()=>returnToEntrance();
 const dirMap={w:'w',a:'a',s:'s',d:'d',ArrowUp:'w',ArrowDown:'s',ArrowLeft:'a',ArrowRight:'d'};
 function direction(key){return dirMap[key]??dirMap[key.toLowerCase()];}
 document.addEventListener('keydown',e=>{
-  if(e.isComposing)return;
+  if(e.isComposing||!closingNotice.hidden)return;
   if(!enteredMarket){
     if(e.key==='Escape'&&watchingMarket){e.preventDefault();closeSpectator();return;}
     if(e.key==='Escape'&&!$('lobby-chat').hidden&&!dialog.open){e.preventDefault();setLobbyChatOpen(false);}
@@ -1202,9 +1271,13 @@ function stopWaiting(){
   queue(0);
 }
 function enterMarket(){
+  const now=Date.now()+timeOffset;
+  if(now<lastCloseAt(now)+MARKET_EXIT_MS)return;
   if(waitingPosition){openSpectator();return;}
   if(enteredMarket||entryRequested||cancelQueue)return;
-  const session=scheduleAt(Date.now()+timeOffset);
+  if(seatsFull())openSpectator();
+  const session=scheduleAt(now);
+  entryRound??=lastCloseAt(now);
   if(!endpoint){showMarket(session);setModel(demo());return;}
   entryRequested=true;
   roomRevision++;
@@ -1229,10 +1302,7 @@ function showMarket(session){
   world?.enterMarket();
   world?.setStock(closedStock,session.slot);
 }
-$('enter-market').onclick=()=>{
-  if(seatsFull()&&!waitingPosition)openSpectator();
-  enterMarket();
-};
+$('enter-market').onclick=enterMarket;
 $('watch-exit').onclick=closeSpectator;
 $('watch-enter').onclick=enterMarket;
 $('watch-cancel').onclick=()=>{

@@ -1,4 +1,4 @@
-import { CHAT_FEED_MS, CHAT_LIMIT, CHAT_MS, EMPTY_STOCK, JUNK, LOBBY_CHAT_LIMIT, LOBBY_CHAT_MS, MAP, MARKET_CAPACITY, MARKET_HOURS, MARKET_ITEMS, RARE_PICKUP_MS, ROUND_CURRENCY, SPAWN, chatText, fit, marketRare, marketSession, niceName, normalizeLook, roundCloth, roundStock, seoulDay, seoulDayStart } from '../game/catalog.mjs';
+import { CHAT_FEED_MS, CHAT_LIMIT, CHAT_MS, EMPTY_STOCK, JUNK, LOBBY_CHAT_LIMIT, LOBBY_CHAT_MS, MAP, MARKET_CAPACITY, MARKET_EXIT_MS, MARKET_HOURS, MARKET_ITEMS, RARE_PICKUP_MS, ROUND_CURRENCY, SPAWN, chatText, fit, lastMarketClose, marketRare, marketSession, niceName, normalizeLook, roundCloth, roundStock, seoulDay, seoulDayStart } from '../game/catalog.mjs';
 
 const defaultName = '새내기 손님';
 const presenceMs = 30_000;
@@ -49,10 +49,17 @@ export class Market {
     player.cash += ROUND_CURRENCY;
     return ROUND_CURRENCY;
   }
-  prune(now) {
+  lastClose(now) {
+    const window = this.testWindow;
+    if (!window || now < window.from) return lastMarketClose(now);
+    if (now < window.until) return lastMarketClose(window.from - 1);
+    return Math.max(lastMarketClose(now), window.until);
+  }
+  prune(now, lastClose = this.lastClose(now)) {
     for (const [id, p] of this.people) {
       const lease = p.room === 'lobby' ? lobbyPresenceMs : p.idle ? idleMarketPresenceMs : presenceMs;
-      if (now - p.seen > lease) this.people.delete(id);
+      const roundEnded = p.room === 'market' && p.entryRound < lastClose && now >= lastClose + MARKET_EXIT_MS;
+      if (roundEnded || now - p.seen > lease) this.people.delete(id);
     }
     for (const [ip, p] of this.joins) if (now - p.at > 60_000) this.joins.delete(ip);
     this.lobbyMessages = this.lobbyMessages.filter(message => now - message.sentAt < LOBBY_CHAT_MS);
@@ -80,8 +87,9 @@ export class Market {
     }
   }
   marketStatus(now) {
-    this.prune(now);
-    return { now, ...this.inventory(now), marketOnline: this.marketCount(), marketCapacity: MARKET_CAPACITY };
+    const lastClose = this.lastClose(now);
+    this.prune(now, lastClose);
+    return { now, lastClose, ...this.inventory(now), marketOnline: this.marketCount(), marketCapacity: MARKET_CAPACITY };
   }
   session(now) {
     const regular = marketSession(now);
@@ -125,7 +133,9 @@ export class Market {
   action(body, now = Date.now(), ip = 'local') {
     const { action, token, pos } = body ?? {};
     const requestedRoom = body?.room === 'lobby' ? 'lobby' : 'market';
-    this.prune(now);
+    const lastClose = this.lastClose(now);
+    const closing = now < lastClose + MARKET_EXIT_MS;
+    this.prune(now, lastClose);
     return this.transaction(() => {
       let player = typeof token === 'string' && /^[0-9a-f]{48}$/.test(token)
         ? this.get('SELECT * FROM players WHERE token = ?', token) : undefined;
@@ -147,16 +157,20 @@ export class Market {
       const previous = this.people.get(player.id) ?? SPAWN;
       const connecting = action === 'join' || action === 'sync';
       const hasSeat = previous.room === 'market';
+      // Queue rows from before the cutoff can never participate in the next round.
+      const queueSince = Math.max(now - queuePresenceMs + 1, closing ? 0 : lastClose);
       let queueAdvanced = false;
       if (connecting) {
-        queueAdvanced = this.query('DELETE FROM market_queue WHERE seen <= ? RETURNING sequence', now - queuePresenceMs).length > 0;
+        queueAdvanced = this.query('DELETE FROM market_queue WHERE seen < ? RETURNING sequence', queueSince).length > 0;
         if (body.cancelQueue === true) {
           queueAdvanced = this.query('DELETE FROM market_queue WHERE player = ? RETURNING sequence', player.id).length > 0 || queueAdvanced;
         }
       }
       let admission;
       if (requestedRoom === 'market') {
-        if (!hasSeat && !connecting) admission = 'enter-first';
+        if (closing && (!hasSeat || !connecting)) admission = 'closing';
+        else if (!closing && body.entryRound !== undefined && body.entryRound !== lastClose) admission = 'closed';
+        else if (!hasSeat && !connecting) admission = 'enter-first';
         else if (!hasSeat) {
           const first = this.get('SELECT player FROM market_queue ORDER BY sequence LIMIT 1');
           if (this.marketCount() >= MARKET_CAPACITY || (first && first.player !== player.id)) {
@@ -168,10 +182,11 @@ export class Market {
             queueAdvanced = true;
           }
         }
-        if (admission && !connecting) return problem('시장에 입장한 뒤 이용해 주세요.', 409);
+        if (admission && !connecting) return problem(admission === 'closing' || admission === 'closed'
+          ? '이번 장이 마감됐어요. 다음 장에 다시 입장해 주세요.' : '시장에 입장한 뒤 이용해 주세요.', 409);
       }
       const room = admission ? 'lobby' : requestedRoom;
-      const currencyGrant = room === 'market' && open && connecting
+      const currencyGrant = room === 'market' && open && !closing && connecting
         ? this.issueRoundCurrency(player, round) ?? null
         : null;
       const x = fit(pos?.x, MAP.minX, MAP.maxX, previous.x);
@@ -242,17 +257,18 @@ export class Market {
         }
       }
       const watchId = room === 'market' ? previous.watchId ?? ++this.nextWatchId : undefined;
-      this.people.set(player.id, { id: player.id, name: player.name, room, x, z, seen: now, idle: !open, speech, lastChat, look, watchId, pickup });
+      const entryRound = room === 'market' ? previous.entryRound ?? lastClose : undefined;
+      this.people.set(player.id, { id: player.id, name: player.name, room, entryRound, x, z, seen: now, idle: !open, speech, lastChat, look, watchId, pickup });
       const roomPeople = [...this.people.values()].filter(person => person.room === room);
       const ranking = this.query('SELECT id, name, collected FROM players WHERE collected > 0 ORDER BY collected DESC, reached ASC, id ASC LIMIT 30');
       const myRank = player.collected ? this.get('SELECT COUNT(*) + 1 AS rank FROM players WHERE collected > ? OR (collected = ? AND reached < ?)', player.collected, player.collected, player.reached).rank : null;
       const outfits = Object.fromEntries(this.query('SELECT character, hat, coat, bag, scarf FROM character_outfits WHERE player = ?', player.id).map(row=>[row.character,normalizeLook(row)]));
       outfits[look.character] = look;
       const queuePosition = room === 'lobby' ? this.get(
-        'SELECT COUNT(*) AS position FROM market_queue WHERE seen > ? AND sequence <= (SELECT sequence FROM market_queue WHERE player = ? AND seen > ?)',
-        now - queuePresenceMs, player.id, now - queuePresenceMs).position || null : null;
+        'SELECT COUNT(*) AS position FROM market_queue WHERE seen >= ? AND sequence <= (SELECT sequence FROM market_queue WHERE player = ? AND seen >= ?)',
+        queueSince, player.id, queueSince).position || null : null;
       return {
-        token: issued, event, room, admission, currencyGrant, speech: speech?.sentAt + CHAT_FEED_MS > now ? speech : undefined, now, ...this.inventory(now, session),
+        token: issued, event, room, admission, currencyGrant, speech: speech?.sentAt + CHAT_FEED_MS > now ? speech : undefined, now, lastClose, ...this.inventory(now, session),
         marketOnline: this.marketCount(), marketCapacity: MARKET_CAPACITY, queuePosition, queueAdvanced,
         player: { id: player.id, name: player.name, cash: player.cash, sold: player.sold, collected: player.collected, rank: myRank, look, outfits },
         basket: this.query('SELECT item, qty, updated FROM basket WHERE player = ? ORDER BY updated DESC, item', player.id),

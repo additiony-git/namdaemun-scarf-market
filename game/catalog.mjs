@@ -154,6 +154,7 @@ const seoulOffset = 9 * 60 * minute;
 export const seoulDay = now => Math.floor((now + seoulOffset) / dayLength);
 export const seoulDayStart = now => seoulDay(now) * dayLength - seoulOffset;
 export const MARKET_DURATION = 45 * minute;
+export const MARKET_EXIT_MS = 10_000;
 export const MARKET_HOURS = [
   { hour: 12, name: '점심 장' },
   { hour: 20, name: '퇴근 장' },
@@ -173,6 +174,11 @@ export function marketSession(now) {
   const next = today[index+1] ?? openings(day + 1)[0];
   const closes = previous + MARKET_DURATION;
   return { round: previous / minute, slot: index<0?3:index+1, open: now < closes, closes, next, nextSlot: (index+1)%3+1 };
+}
+
+export function lastMarketClose(now) {
+  const session = marketSession(now);
+  return session.open ? marketSession(session.round * minute - 1).closes : session.closes;
 }
 
 export const RARE_PICKUP_MS = 8_000;
