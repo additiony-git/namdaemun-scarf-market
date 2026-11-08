@@ -23,7 +23,7 @@ const market=new Market((sql,...params)=>{
   db.exec('BEGIN IMMEDIATE');
   try{const result=fn();db.exec('COMMIT');return result;}
   catch(error){db.exec('ROLLBACK');throw error;}
-});
+}, undefined, process.env.GOOGLE_CLIENT_ID);
 const types={'.html':'text/html','.mjs':'application/javascript','.css':'text/css','.svg':'image/svg+xml','.png':'image/png','.webp':'image/webp','.wav':'audio/wav'};
 const server=createServer(async (req,res)=>{
   try{

@@ -11,7 +11,7 @@ const firstStock=roundStock(1);
 
 function setup() {
   const db=new DatabaseSync(':memory:');
-  function create(testWindow) {
+  function create(testWindow, googleClientId) {
     return new Market((sql,...params)=>{
       const stmt=db.prepare(sql);
       if(/^SELECT\b|\bRETURNING\b/i.test(sql))return stmt.all(...params);
@@ -19,7 +19,7 @@ function setup() {
     }, fn=>{
       db.exec('BEGIN IMMEDIATE');
       try {const value=fn();db.exec('COMMIT');return value;} catch(e){db.exec('ROLLBACK');throw e;}
-    },testWindow);
+    },testWindow,googleClientId);
   }
   return {create, db, close:()=>db.close()};
 }
@@ -404,6 +404,57 @@ test('HTTP requires the configured origin and a valid token for trades', async t
   assert.equal(bought.basket[0].item,'scarf');
   assert.equal(bought.player.collected,1);
   assert.equal(bought.player.rank,1);
+});
+
+test('Google sign-in connects existing guest records and restores the same player on another device', async t=>{
+  const data=setup();t.after(data.close);
+  const legacy=data.create();
+  const guest=legacy.action({action:'join'},start);
+  legacy.action({action:'buy',token:guest.token,item:'scarf'},start+500);
+  const clientId='test.apps.googleusercontent.com';
+  const market=data.create(undefined,clientId);
+  const origin='https://market.setting41.com';
+  const url='https://market.example/api/market';
+  const post=body=>endpoint(market,new Request(url,{method:'POST',headers:{Origin:origin},body:JSON.stringify(body)}),origin);
+  const algorithm={name:'RSASSA-PKCS1-v1_5',modulusLength:2048,publicExponent:new Uint8Array([1,0,1]),hash:'SHA-256'};
+  const {publicKey,privateKey}=await crypto.subtle.generateKey(algorithm,true,['sign','verify']);
+  const jwk={...await crypto.subtle.exportKey('jwk',publicKey),kid:'test-key',alg:'RS256'};
+  t.mock.method(globalThis,'fetch',async url=>{
+    assert.equal(url,'https://www.googleapis.com/oauth2/v3/certs');
+    return Response.json({keys:[jwk]});
+  });
+  const encoded=value=>Buffer.from(JSON.stringify(value)).toString('base64url');
+  const googleCredential=async (nonce,aud=clientId)=>{
+    const now=Math.floor(Date.now()/1000);
+    const input=encoded({alg:'RS256',kid:jwk.kid})+'.'+encoded({iss:'https://accounts.google.com',aud,sub:'google-player',nonce,iat:now,exp:now+120});
+    const signature=await crypto.subtle.sign(algorithm,privateKey,Buffer.from(input));
+    return input+'.'+Buffer.from(signature).toString('base64url');
+  };
+
+  const publicView=await (await endpoint(market,new Request(url+'?watch=1'),origin)).json();
+  assert.equal(publicView.googleClientId,clientId);
+  assert.ok(Array.isArray(publicView.crowd));
+  assert.equal(publicView.player,undefined);
+  assert.equal((await post({action:'join'})).status,401);
+  assert.equal((await post({action:'sync',token:guest.token})).status,401);
+
+  const {nonce}=await (await post({action:'google-challenge',guestToken:guest.token})).json();
+  assert.equal((await post({action:'google-login',credential:await googleCredential(nonce,'other-client')})).status,401);
+  const credential=await googleCredential(nonce);
+  const first=await (await post({action:'google-login',credential})).json();
+  assert.equal(first.linkedGuest,true);
+  assert.equal((await post({action:'google-login',credential})).status,401);
+  const another=await (await post({action:'google-challenge'})).json();
+  const second=await (await post({action:'google-login',credential:await googleCredential(another.nonce)})).json();
+  assert.notEqual(first.token,second.token);
+  const profile=await (await post({action:'sync',token:second.token,room:'lobby'})).json();
+  assert.equal(profile.player.id,guest.player.id);
+  assert.equal(profile.player.cash,ROUND_CURRENCY-700);
+  assert.equal(profile.player.rank,1);
+  assert.equal(profile.basket[0].item,'scarf');
+  assert.equal((await post({action:'logout',token:first.token})).status,200);
+  assert.equal((await post({action:'sync',token:first.token,room:'lobby'})).status,401);
+  assert.equal((await post({action:'sync',token:second.token,room:'lobby'})).status,200);
 });
 
 test('chat is authenticated, transient, limited and visible to another guest', t=>{

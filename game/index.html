@@ -65,6 +65,7 @@
             <button type="button" class="enter-market" id="enter-market" aria-describedby="queue-detail">
               <span id="enter-market-label">선착순 입장하기</span><i data-icon="arrow" aria-hidden="true"></i>
             </button>
+            <button type="button" class="glass watch-control" id="watch-market" hidden>시장 구경하기</button>
           </div>
         </div>
       </div>
@@ -219,6 +220,14 @@
   <dialog id="modal" aria-labelledby="modal-title">
     <div class="modal-head"><div><div id="modal-kicker" class="kicker"></div><h2 id="modal-title"></h2></div><button class="glass icon-btn" id="close-modal" aria-label="닫기"><i data-icon="close"></i></button></div>
     <div id="modal-body"></div>
+  </dialog>
+  <dialog id="account-modal" aria-labelledby="account-title">
+    <div class="modal-head"><h2 id="account-title">Google 로그인</h2><button type="button" class="glass icon-btn" id="close-account" aria-label="닫기"><i data-icon="close"></i></button></div>
+    <p class="modal-note">같은 Google 계정으로 다른 기기에서도 프로필과 장바구니를 이어서 사용해요.</p>
+    <p class="modal-note" id="account-link-note" hidden>처음 연결하는 계정이라면 이 브라우저의 게스트 기록을 가져와요.</p>
+    <div id="google-button"></div>
+    <p class="modal-note" id="account-feedback" role="status"></p>
+    <a class="account-privacy" href="./privacy.html" target="_blank" rel="noopener">개인정보 안내</a>
   </dialog>
   <div id="toast" role="status" aria-live="polite"></div>
   <script type="module" src="./app.mjs"></script>

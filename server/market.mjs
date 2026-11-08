@@ -1,4 +1,5 @@
 import { CHAT_FEED_MS, CHAT_LIMIT, CHAT_MS, EMPTY_STOCK, JUNK, LOBBY_CHAT_LIMIT, LOBBY_CHAT_MS, MAP, MARKET_CAPACITY, MARKET_EXIT_MS, MARKET_ITEMS, RARE_PICKUP_MS, RARE_SCARVES, ROUND_CURRENCY, SPAWN, chatText, fit, isNightMarket, lastMarketClose, marketRare, marketSession, niceName, normalizeLook, roundCloth, roundStock, seoulDay, seoulDayStart } from '../game/catalog.mjs';
+import { verifyGoogleCredential } from './google.mjs';
 
 const defaultName = '새내기 손님';
 const presenceMs = 30_000;
@@ -8,16 +9,20 @@ const queuePresenceMs = 270_000;
 const queueRenewalMs = 220_000;
 const tradeMs = 350;
 const chatCooldown = 1800;
+const loginChallengeMs = 10 * 60_000;
+const loginSessionMs = 90 * 86_400_000;
 const minute = 60_000;
 const rareIds = RARE_SCARVES.map(item => item.id);
 const rareParams = rareIds.map(() => '?').join(', ');
 const problem = (error, status = 400) => ({ error, status });
 const newToken = () => Array.from(crypto.getRandomValues(new Uint8Array(24)), n => n.toString(16).padStart(2, '0')).join('');
+const validToken = token => typeof token === 'string' && /^[0-9a-f]{48}$/.test(token);
 export class Market {
-  constructor(query, transaction, testWindow) {
+  constructor(query, transaction, testWindow, googleClientId = '') {
     this.query = query;
     this.transaction = transaction;
     this.testWindow = testWindow;
+    this.googleClientId = googleClientId;
     this.people = new Map();
     this.nextWatchId = 0;
     this.lobbyMessages = [];
@@ -34,6 +39,9 @@ export class Market {
     query('CREATE TABLE IF NOT EXISTS daily_rare_sales (day INTEGER PRIMARY KEY)');
     query('CREATE TABLE IF NOT EXISTS market_queue (sequence INTEGER PRIMARY KEY, player TEXT UNIQUE NOT NULL, round INTEGER NOT NULL, seen INTEGER NOT NULL)');
     query('CREATE INDEX IF NOT EXISTS queue_seen ON market_queue (seen)');
+    query('CREATE TABLE IF NOT EXISTS google_accounts (subject TEXT PRIMARY KEY, player TEXT UNIQUE NOT NULL)');
+    query('CREATE TABLE IF NOT EXISTS google_challenges (nonce TEXT PRIMARY KEY, origin TEXT NOT NULL, guest TEXT, ip TEXT NOT NULL, expires INTEGER NOT NULL)');
+    query('CREATE TABLE IF NOT EXISTS player_sessions (token TEXT PRIMARY KEY, player TEXT NOT NULL, expires INTEGER NOT NULL)');
     query('CREATE TABLE IF NOT EXISTS market_migrations (name TEXT PRIMARY KEY)');
     transaction(() => {
       if (!query("INSERT OR IGNORE INTO market_migrations VALUES ('basket_ranking') RETURNING name").length) return;
@@ -44,6 +52,57 @@ export class Market {
     });
   }
   get(sql, ...args) { return this.query(sql, ...args)[0]; }
+  sessionPlayer(token, now) {
+    if (!validToken(token)) return;
+    return this.get('SELECT p.* FROM player_sessions s JOIN players p ON p.id = s.player WHERE s.token = ? AND s.expires > ?', token, now);
+  }
+  googleChallenge(guestToken, origin, now, ip) {
+    return this.transaction(() => {
+      this.query('DELETE FROM google_challenges WHERE expires <= ?', now);
+      const { count } = this.get('SELECT COUNT(*) AS count FROM google_challenges WHERE ip = ?', ip);
+      if (count >= 12) return problem('잠시 후 다시 로그인해 주세요.', 429);
+      const guest = validToken(guestToken) ? this.get('SELECT id FROM players WHERE token = ?', guestToken)?.id : null;
+      const nonce = newToken();
+      this.query('INSERT INTO google_challenges VALUES (?, ?, ?, ?, ?)', nonce, origin, guest ?? null, ip, now + loginChallengeMs);
+      return { nonce };
+    });
+  }
+  googleLogin(identity, origin, now) {
+    return this.transaction(() => {
+      const challenge = this.get('DELETE FROM google_challenges WHERE nonce = ? AND origin = ? AND expires > ? RETURNING guest',
+        identity.nonce, origin, now);
+      if (!challenge) return problem('로그인 시간이 지났어요. Google 로그인을 다시 열어 주세요.', 401);
+      let player = this.get('SELECT player FROM google_accounts WHERE subject = ?', identity.subject)?.player;
+      let linkedGuest = false;
+      if (!player) {
+        if (challenge.guest) {
+          if (this.get('SELECT 1 FROM google_accounts WHERE player = ?', challenge.guest)) {
+            return problem('이 게스트 기록은 이미 Google 계정에 연결되어 있어요.', 409);
+          }
+          player = challenge.guest;
+          linkedGuest = true;
+          this.query('UPDATE players SET token = ? WHERE id = ?', newToken(), player);
+        } else {
+          player = crypto.randomUUID();
+          this.query('INSERT INTO players (id, token, name, cash) VALUES (?, ?, ?, 0)', player, newToken(), defaultName);
+        }
+        this.query('INSERT INTO google_accounts VALUES (?, ?)', identity.subject, player);
+      }
+      this.query('DELETE FROM player_sessions WHERE expires <= ?', now);
+      const token = newToken();
+      this.query('INSERT INTO player_sessions VALUES (?, ?, ?)', token, player, now + loginSessionMs);
+      return { token, linkedGuest, otherGuest: Boolean(challenge.guest && challenge.guest !== player) };
+    });
+  }
+  logout(token) {
+    if (!validToken(token)) return;
+    this.transaction(() => {
+      const session = this.get('DELETE FROM player_sessions WHERE token = ? RETURNING player', token);
+      if (!session) return;
+      this.people.delete(session.player);
+      this.query('DELETE FROM market_queue WHERE player = ?', session.player);
+    });
+  }
   rareRanking(playerId) {
     const ranks = this.query(`SELECT id, name, collected, rank, items FROM (
       SELECT p.id, p.name, SUM(b.qty) AS collected,
@@ -109,10 +168,13 @@ export class Market {
         : { id: person.id, watchId: person.watchId, item, sentAt, expiresAt };
     }
   }
-  marketStatus(now) {
+  marketStatus(now, watch = false) {
     const lastClose = this.lastClose(now);
     this.prune(now, lastClose);
-    return { now, lastClose, ...this.inventory(now), marketOnline: this.marketCount(), marketCapacity: MARKET_CAPACITY };
+    return { now, lastClose, ...this.inventory(now), marketOnline: this.marketCount(), marketCapacity: MARKET_CAPACITY,
+      googleClientId: this.googleClientId || undefined,
+      crowd: watch ? this.marketCrowd(now) : undefined,
+      rarePickup: watch ? this.rarePickup(now, true) : undefined };
   }
   session(now) {
     const regular = marketSession(now);
@@ -160,8 +222,9 @@ export class Market {
     const closing = now < lastClose + MARKET_EXIT_MS;
     this.prune(now, lastClose);
     return this.transaction(() => {
-      let player = typeof token === 'string' && /^[0-9a-f]{48}$/.test(token)
-        ? this.get('SELECT * FROM players WHERE token = ?', token) : undefined;
+      let player = this.sessionPlayer(token, now);
+      if (this.googleClientId && !player) return problem('Google로 로그인한 뒤 시장에 입장해 주세요.', 401);
+      if (!player && validToken(token)) player = this.get('SELECT * FROM players WHERE token = ?', token);
       let issued;
       if (!player && action === 'join') {
         const last = this.joins.get(ip);
@@ -327,7 +390,7 @@ export function endpoint(market, request, allowedOrigins = '', ip = 'local', pub
   const send = (body, status = 200) => new Response(JSON.stringify(body), { status, headers });
   if (!permitted) return send({ error: '이 사이트에서는 장터에 연결할 수 없어요.' }, 403);
   if (request.method === 'GET') {
-    return send(market.marketStatus(Date.now()));
+    return send(market.marketStatus(Date.now(), new URL(request.url).searchParams.get('watch') === '1'));
   }
   if (request.method !== 'POST') return send({ error: 'GET과 POST 요청만 받습니다.' }, 405);
   return (async () => {
@@ -339,13 +402,30 @@ export function endpoint(market, request, allowedOrigins = '', ip = 'local', pub
         while (true) {
           const { value, done } = await reader.read();
           if (done) break;
-          if ((bytes += value.byteLength) > 2048) { await reader.cancel(); return send({ error: '요청이 너무 커요.' }, 413); }
+          if ((bytes += value.byteLength) > 12_000) { await reader.cancel(); return send({ error: '요청이 너무 커요.' }, 413); }
           raw += decoder.decode(value, { stream: true });
         }
         raw += decoder.decode();
       }
       let data;
       try { data = JSON.parse(raw); } catch { return send({ error: '요청을 읽을 수 없어요.' }, 400); }
+      if (data?.action === 'logout') {
+        market.logout(data.token);
+        return send({ ok: true });
+      }
+      if (data?.action === 'google-challenge' || data?.action === 'google-login') {
+        if (!origin) return send({ error: '게임 화면에서 로그인해 주세요.' }, 403);
+        if (!market.googleClientId) return send({ error: 'Google 로그인 설정이 필요해요.' }, 503);
+        const now = Date.now();
+        if (data.action === 'google-challenge') {
+          const result = market.googleChallenge(data.guestToken, origin, now, ip);
+          return result.error ? send({ error: result.error }, result.status) : send(result);
+        }
+        const identity = await verifyGoogleCredential(data.credential, market.googleClientId, now);
+        if (!identity) return send({ error: 'Google 계정을 확인할 수 없어요. 다시 로그인해 주세요.' }, 401);
+        const result = market.googleLogin(identity, origin, Date.now());
+        return result.error ? send({ error: result.error }, result.status) : send(result);
+      }
       const result = market.action(data, Date.now(), ip);
       if (result.error) return send({ error: result.error }, result.status);
       publish?.(data.action, result);

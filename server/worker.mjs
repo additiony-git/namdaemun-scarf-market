@@ -13,17 +13,18 @@ export class MarketRoom extends DurableObject {
     const from = Date.parse(env.TEST_MARKET_FROM);
     const until = Date.parse(env.TEST_MARKET_UNTIL);
     const testWindow = Number.isFinite(from) && Number.isFinite(until) && until > from ? { from, until } : undefined;
-    this.market = new Market((sql,...params) => storage.sql.exec(sql,...params).toArray(), fn => storage.transactionSync(fn), testWindow);
+    this.market = new Market((sql,...params) => storage.sql.exec(sql,...params).toArray(), fn => storage.transactionSync(fn), testWindow, env.GOOGLE_CLIENT_ID);
     this.allowedOrigins = [env.PAGES_ORIGIN, env.PAGES_CUSTOM_ORIGIN].filter(Boolean);
   }
   fetch(request) {
     if (request.headers.get('Upgrade')?.toLowerCase() === 'websocket') {
       if (!permitsMarketOrigin(request, this.allowedOrigins)) return new Response('Forbidden', { status: 403 });
       if (this.ctx.getWebSockets().length >= 120) return new Response('Market is busy', { status: 503 });
-      const room = new URL(request.url).searchParams.get('room') === 'lobby' ? 'lobby' : 'market';
+      const requestedRoom = new URL(request.url).searchParams.get('room');
+      const room = requestedRoom === 'watch' ? 'watch' : requestedRoom === 'lobby' ? 'lobby' : 'market';
       const [client, server] = Object.values(new WebSocketPair());
       this.ctx.acceptWebSocket(server);
-      server.serializeAttachment({ room });
+      server.serializeAttachment(this.market.googleClientId && room !== 'watch' ? { room: 'watch', requestedRoom: room } : { room });
       const status = this.ctx.storage.transactionSync(() => this.market.marketStatus(Date.now()));
       server.send(JSON.stringify({ type: 'market-status', ...status }));
       return new Response(null, { status: 101, webSocket: client });
@@ -66,7 +67,14 @@ export class MarketRoom extends DurableObject {
   }
   webSocketMessage(socket, message) {
     const state = socketState(socket);
-    if (state.room !== 'lobby' || (message !== 'watch' && message !== 'unwatch')) {
+    if (state.requestedRoom && typeof message === 'string' && message.startsWith('session:')) {
+      const player = this.market.sessionPlayer(message.slice(8), Date.now());
+      if (player && this.market.people.get(player.id)?.room === state.requestedRoom) {
+        socket.serializeAttachment({ room: state.requestedRoom, watching: state.watching });
+      } else socket.close(1008, 'Invalid session');
+      return;
+    }
+    if (!['lobby', 'watch'].includes(state.room) || (message !== 'watch' && message !== 'unwatch')) {
       socket.close(1008, 'Unsupported feed action');
       return;
     }
