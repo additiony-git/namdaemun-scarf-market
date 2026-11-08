@@ -38,8 +38,6 @@ function icons(root=document) {
 icons();
 
 const endpoint = MARKET_API;
-const lobbyWaitEntry=$('lobby-wait-entry');
-lobbyWaitEntry.hidden=!endpoint;
 const tokenKey = 'ndm-token-v1:' + (endpoint || 'offline');
 const demoKey = 'ndm-demo-v1';
 const temporary=new Map();
@@ -376,11 +374,10 @@ function renderEntrance(session, now){
   const full=seatsFull();
   const button=$('enter-market');
   button.disabled=cancelQueue||(entryRequested&&!waitingPosition);
-  lobbyWaitEntry.disabled=button.disabled;
   const label=waitingPosition?'내 대기 '+waitingPosition+'번'
-    :entryRequested?'입장 확인 중':endpoint?'선착순 줄서기':'시장 입장하기';
+    :entryRequested?'입장 확인 중':endpoint?'선착순 입장하기':'시장 입장하기';
   setText('enter-market-label',label);
-  if(waitingPosition)button.setAttribute('aria-label',label+' · 시장 구경하기');
+  if(waitingPosition)button.setAttribute('aria-label',label+' · 관람 화면 열기');
   else button.removeAttribute('aria-label');
   $('queue-card').dataset.state=waitingPosition?'queue':full?'full':open?'open':'waiting';
   setText('queue-heading',open?(session.testing?'테스트 장 판매 중':session.slot+'차 판매 중'):session.nextSlot+'차 개장까지');
@@ -1181,10 +1178,6 @@ function showMarket(session){
 }
 $('enter-market').onclick=enterMarket;
 $('spectate-market').onclick=()=>openSpectator();
-lobbyWaitEntry.onclick=()=>{
-  openSpectator();
-  if(!waitingPosition)enterMarket();
-};
 $('watch-exit').onclick=closeSpectator;
 $('watch-enter').onclick=enterMarket;
 $('watch-cancel').onclick=()=>{
