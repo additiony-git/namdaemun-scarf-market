@@ -58,6 +58,7 @@ let entranceSchedule;
 let muted=true, audioCtx, toastTimer, acting=false;
 let profileTab='avatar', profileFeedback='';
 let rankTab='all';
+const publicScores={};
 const profileDrafts=new Map();
 let nearby=false, shop=false, shopSignature='', inventory, feed, retryFeedAt=0, transitionRequested=0;
 let soldoutPreview=false, soldoutPreviewTimer;
@@ -78,6 +79,8 @@ const closingNotice=$('market-closing');
 const roundEndedMessage='이번 장이 마감되어 시작 화면으로 돌아왔어요. 다음 장은 선착순으로 다시 입장해 주세요.';
 const activeRoom=()=>enteredMarket?'market':'lobby';
 const wantsRareRanking=()=>dialog.open&&modal==='rank'&&rankTab==='rare';
+const rankingView=()=>dialog.open&&modal==='rank'?rankTab:'';
+const lobbyChatOpen=()=>!$('lobby-chat').hidden;
 const lobbySyncDelay=endpoint.startsWith('https://')?240_000:5_000;
 const marketSyncDelay=6_000;
 const idleMarketSyncDelay=40_000;
@@ -170,9 +173,11 @@ async function request(action, extra={}, room=activeRoom()){
   if(data.token){token=data.token;write(tokenKey,token);}
   return data;
 }
-async function readPublicMarket(){
+async function readPublicMarket({lobby,ranking}={}){
   const url=new URL(endpoint,location.href);
   if(watchingMarket&&!feedWatching)url.searchParams.set('watch','1');
+  if(lobby)url.searchParams.set('lobby','1');
+  if(ranking)url.searchParams.set('ranking',ranking);
   const response=await fetch(url,{signal:AbortSignal.timeout(6000)});
   if(!response.ok)throw Error('장터 상태를 불러오지 못했어요.');
   const data=await response.json();
@@ -185,6 +190,8 @@ function updatePublicMarket(data){
   authChecked=true;
   noteSchedule(data);
   setWatchStatus(data);
+  for(const speech of data.lobbyMessages??[])showLobbyChat(speech);
+  if(data.publicRanking)publicScores[data.publicRanking.kind]=data.publicRanking;
   if(watchingMarket&&data.crowd)setWatchCrowd(data.crowd,data.now);
   if(watchingMarket)showRarePickup(data.rarePickup);
 }
@@ -435,7 +442,7 @@ function connectFeed(){
     feed=null;
     feedWatching=false;
     retryFeedAt=Date.now()+10_000;
-    if((watchingMarket||entryRequested)&&!busy)queue(watchSyncDelay);
+    if((watchingMarket||entryRequested||lobbyChatOpen())&&!busy)queue(watchSyncDelay);
   };
 }
 function status() {
@@ -444,10 +451,11 @@ function status() {
   $('live').title=mode==='solo'?'이 브라우저에만 기록되는 혼자 체험 모드':mode==='online'?'현재 이 골목에 접속한 상인 수':'온라인 장터 연결 상태';
   $('online').textContent=mode==='online'&&model?format(model.online):mode==='solo'?'1':'–';
   const lobbyOnline=!enteredMarket&&mode==='online';
-  const guestChat=loginNeeded()?'Google로 로그인하면 대화할 수 있어요.':'시장에 입장하면 대화할 수 있어요.';
+  const guestChat='구경 손님으로 대화할 수 있어요.';
   setText('lobby-chat-status',lobbyOnline?'대기 중 '+format(model.online)+'명':mode==='anonymous'?guestChat:mode==='solo'?'온라인에서 함께 대화할 수 있어요':mode==='retry'?'대기실에 다시 연결하고 있어요':'대기실에 연결하고 있어요');
-  $('lobby-chat-input').disabled=!lobbyOnline;
-  $('lobby-send-chat').disabled=!lobbyOnline||sendingChat;
+  const canChat=lobbyOnline||(!enteredMarket&&mode==='anonymous');
+  $('lobby-chat-input').disabled=!canChat;
+  $('lobby-send-chat').disabled=!canChat||sendingChat;
 }
 function noteSchedule(data){
   if(!Number.isFinite(data.now)||!Number.isFinite(data.next)||!Number.isFinite(data.closes)||
@@ -635,7 +643,7 @@ function rankRows(list){
       return item?safe(item.name)+' × '+format(entry.qty):'';
     }).filter(Boolean).join(' · ');
     return '<li class="rank-row"><span class="rank-pos">'+(i+1)+'</span><span class="rank-face">'+icon('user')+'</span>'+
-      '<div class="rank-collector"><span class="rank-name">'+safe(p.name)+(p.id===model.player.id?'<small>나</small>':'')+'</span>'+
+      '<div class="rank-collector"><span class="rank-name">'+safe(p.name)+(p.id===model?.player.id?'<small>나</small>':'')+'</span>'+
       (items?'<small class="rank-items">'+items+'</small>':'')+'</div><span class="rank-num">'+format(p.collected)+'<small> 개</small></span></li>';
   }).join('');
 }
@@ -655,8 +663,10 @@ function modalInfo(type){
   })[type];
 }
 function open(type, tab='avatar'){
-  if(loginNeeded()){void openGoogleLogin();return;}
-  if(endpoint&&!model&&!token){guestRequested=true;queue(0);}
+  if(type==='profile'){
+    if(loginNeeded()){void openGoogleLogin();return;}
+    if(endpoint&&!model&&!token){guestRequested=true;queue(0);}
+  }
   profileDrafts.clear();
   modal=type;
   profileTab=tab;
@@ -849,7 +859,8 @@ function renderModal(){
   }
   const content=$('rank-content');
   const rare=rankTab==='rare';
-  const scores=rare?model?.rareRanking:model&&{rows:model.ranking,rank:model.player.rank,count:model.player.collected};
+  const personalScores=rare?model?.rareRanking:model&&{rows:model.ranking,rank:model.player.rank,count:model.player.collected};
+  const scores=personalScores??publicScores[rankTab];
   if(!scores){
     content.innerHTML='<p class="empty">'+(mode==='retry'?'장터에 다시 연결하고 있어요.':'랭킹을 불러오고 있어요.')+'</p>';
     return;
@@ -998,6 +1009,7 @@ function setChatOpen(open){
 function setLobbyChatOpen(open, focus=true){
   $('lobby-chat').hidden=!open;
   $('lobby-chat-toggle').setAttribute('aria-expanded',String(open));
+  if(open&&endpoint)queue(0);
   if(!focus)return;
   if(open){
     const log=$('lobby-chat-feed');
@@ -1031,9 +1043,10 @@ async function postRoomChat(text,room,revision){
 }
 async function sendChat(room){
   if(room!==activeRoom()||sendingChat)return;
-  if(mode!=='online'){toast('장터에 연결한 뒤 다시 시도해 주세요.');return;}
-  const revision=roomRevision;
   const lobby=room==='lobby';
+  const guest=lobby&&mode==='anonymous';
+  if(!guest&&mode!=='online'){toast('장터에 연결한 뒤 다시 시도해 주세요.');return;}
+  const revision=roomRevision;
   const input=$(lobby?'lobby-chat-input':'chat-input');
   const button=$(lobby?'lobby-send-chat':'send-chat');
   const errorMessage=$('lobby-chat-error');
@@ -1051,9 +1064,10 @@ async function sendChat(room){
   try{
     claimed=await claimRoomRequest(revision);
     if(!claimed)return;
-    const result=await postRoomChat(text,room,revision);
+    const result=guest?await marketPost({action:'guest-lobby-chat',text}):await postRoomChat(text,room,revision);
     if(!result||revision!==roomRevision)return;
-    setModel(result);
+    if(guest)showLobbyChat(result.speech);
+    else setModel(result);
     if(input.value===original){
       input.value='';
       if(!lobby)setChatOpen(false);
@@ -1155,6 +1169,7 @@ async function connect(){
   if(document.hidden){queue(5000);return;}
   const requestingEntry=entryRequested;
   const room=requestingEntry?'market':activeRoom(), revision=roomRevision;
+  const lobby=lobbyChatOpen(), ranking=rankingView();
   queueAdvancePending=false;
   const extra={cancelQueue,includeRareRanking:wantsRareRanking()};
   if(requestingEntry&&!watchingMarket)extra.watch=true;
@@ -1163,12 +1178,14 @@ async function connect(){
   try{
     const publicOnly=!token&&!requestingEntry&&!guestRequested;
     if(!authChecked||loginNeeded()||publicOnly){
-      const publicState=await readPublicMarket();
+      const publicState=await readPublicMarket({lobby,ranking});
       if(revision!==roomRevision)return;
       updatePublicMarket(publicState);
       if(loginNeeded()||publicOnly){
         mode='anonymous';misses=0;
-        status();tick();connectFeed();
+        status();tick();
+        if(rankingView())renderModal();
+        connectFeed();
         return;
       }
     }
@@ -1176,7 +1193,7 @@ async function connect(){
     try{data=await request(token?'sync':'join',extra,room);}
     catch(e){
       if(e.status!==401||revision!==roomRevision)throw e;
-      const publicState=await readPublicMarket();
+      const publicState=await readPublicMarket({lobby,ranking});
       if(revision!==roomRevision)return;
       updatePublicMarket(publicState);
       if(loginRequired||googleSession){
@@ -1229,9 +1246,10 @@ async function connect(){
     busy=false;
     let next=lobbySyncDelay;
     if(enteredMarket)next=scheduleAt(Date.now()+timeOffset).open?marketSyncDelay:idleMarketSyncDelay;
-    else if((entryRequested||watchingMarket)&&feed?.readyState!==WebSocket.OPEN)next=watchSyncDelay;
+    else if((entryRequested||watchingMarket||lobbyChatOpen())&&feed?.readyState!==WebSocket.OPEN)next=watchSyncDelay;
     if(waitingPosition&&queueAdvancePending&&!retryDelay)next=0;
     if(!extra.includeRareRanking&&wantsRareRanking()&&!retryDelay)next=0;
+    if(mode==='anonymous'&&((!lobby&&lobbyChatOpen())||(rankingView()&&rankingView()!==ranking)))next=0;
     queue(revision===roomRevision?(retryDelay??next):0);
   }
 }
@@ -1294,7 +1312,7 @@ document.addEventListener('click', e=>{
   if(rankingTab&&rankTab!==rankingTab.dataset.rankTab){
     rankTab=rankingTab.dataset.rankTab;
     renderModal();
-    if(wantsRareRanking())queue(0);
+    if(endpoint)queue(0);
   }
   if(e.target.closest('#logout-google'))void signOut();
   if(e.target.closest('#rotate-avatar')){

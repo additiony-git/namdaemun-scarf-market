@@ -470,6 +470,35 @@ test('required Google login blocks guest admission before OAuth is configured', 
   assert.equal(view.stock.scarf,firstStock.scarf);
 });
 
+test('guests can read rankings and use lobby chat without creating a player or market seat', async t=>{
+  const data=setup();t.after(data.close);
+  const legacy=data.create();
+  const player=legacy.action({action:'join'},start);
+  const rare=marketRare(marketSession(start));
+  legacy.action({action:'buy',token:player.token,item:rare.id},start+500);
+  const market=data.create(undefined,'',true);
+  const origin='https://market.setting41.com';
+  const url='https://market.example/api/market';
+  const events=[];
+  const request=(suffix,body,source=origin)=>endpoint(market,new Request(url+suffix,body?
+    {method:'POST',headers:{Origin:source},body:JSON.stringify(body)}:undefined),origin,'guest-ip',(action,state)=>events.push([action,state.room]));
+
+  const message={action:'guest-lobby-chat',text:'구경 왔어요.',name:'임의 닉네임',room:'market'};
+  assert.equal((await request('',message,'https://other.example')).status,403);
+  const posted=await (await request('',message)).json();
+  assert.equal(posted.speech.name,'구경 손님');
+  assert.deepEqual(events,[['chat','lobby']]);
+  assert.equal((await request('',message)).status,429);
+  const all=await (await request('?lobby=1&ranking=all&watch=1')).json();
+  assert.deepEqual(all.lobbyMessages,[posted.speech]);
+  assert.deepEqual(all.publicRanking.rows.map(row=>row.collected),[1]);
+  assert.deepEqual(all.crowd,[]);
+  assert.equal(all.player,undefined);
+  const rares=await (await request('?ranking=rare')).json();
+  assert.deepEqual(rares.publicRanking.rows[0].items,[{item:rare.id,qty:1}]);
+  assert.equal(data.db.prepare('SELECT COUNT(*) AS count FROM players').get().count,1);
+});
+
 test('chat is authenticated, transient, limited and visible to another guest', t=>{
   const data=setup();t.after(data.close);
   const market=data.create();

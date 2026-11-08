@@ -9,6 +9,7 @@ const queuePresenceMs = 270_000;
 const queueRenewalMs = 220_000;
 const tradeMs = 350;
 const chatCooldown = 1800;
+const guestChatCooldown = 3000;
 const loginChallengeMs = 10 * 60_000;
 const loginSessionMs = 90 * 86_400_000;
 const minute = 60_000;
@@ -27,6 +28,7 @@ export class Market {
     this.people = new Map();
     this.nextWatchId = 0;
     this.lobbyMessages = [];
+    this.guestChats = new Map();
     this.joins = new Map();
     query('CREATE TABLE IF NOT EXISTS players (id TEXT PRIMARY KEY, token TEXT UNIQUE NOT NULL, name TEXT NOT NULL, cash INTEGER NOT NULL, sold INTEGER NOT NULL DEFAULT 0, collected INTEGER NOT NULL DEFAULT 0, reached INTEGER NOT NULL DEFAULT 0, traded INTEGER NOT NULL DEFAULT 0)');
     query('CREATE INDEX IF NOT EXISTS ranking ON players (collected DESC, reached ASC, id ASC)');
@@ -104,7 +106,10 @@ export class Market {
       this.query('DELETE FROM market_queue WHERE player = ?', session.player);
     });
   }
-  rareRanking(playerId) {
+  collectionRanking() {
+    return this.query('SELECT id, name, collected FROM players WHERE collected > 0 ORDER BY collected DESC, reached ASC, id ASC LIMIT 30');
+  }
+  rareRanking(playerId = null) {
     const ranks = this.query(`SELECT id, name, collected, rank, items FROM (
       SELECT p.id, p.name, SUM(b.qty) AS collected,
         ROW_NUMBER() OVER (ORDER BY SUM(b.qty) DESC, MAX(b.updated), p.id) AS rank,
@@ -116,6 +121,22 @@ export class Market {
     const personal = ranks.find(row => row.id === playerId);
     const rows = ranks.filter(row => row.rank <= 30).map(row => ({ ...row, items: JSON.parse(row.items) }));
     return { rows, rank: personal?.rank ?? null, count: personal?.collected ?? 0 };
+  }
+  addLobbyMessage(speech) {
+    this.lobbyMessages.push(speech);
+    if (this.lobbyMessages.length > LOBBY_CHAT_LIMIT) this.lobbyMessages.shift();
+  }
+  guestLobbyChat(value, now, ip) {
+    const text = chatText(value);
+    if (!text || [...text].length > CHAT_LIMIT) return problem('채팅은 1~80자로 입력해 주세요.');
+    this.prune(now);
+    if (now - (this.guestChats.get(ip) ?? -Infinity) < guestChatCooldown) {
+      return problem('잠시 후 다시 말해 주세요.', 429);
+    }
+    this.guestChats.set(ip, now);
+    const speech = { playerId: crypto.randomUUID(), name: '구경 손님', text, sentAt: now, expiresAt: now + CHAT_MS };
+    this.addLobbyMessage(speech);
+    return { speech };
   }
   issueRoundCurrency(player, round) {
     if (this.get('SELECT 1 FROM round_currency WHERE player = ? AND round = ?', player.id, round)) return;
@@ -145,6 +166,7 @@ export class Market {
       if (roundEnded || now - p.seen > lease) this.people.delete(id);
     }
     for (const [ip, p] of this.joins) if (now - p.at > 60_000) this.joins.delete(ip);
+    for (const [ip, at] of this.guestChats) if (now - at >= guestChatCooldown) this.guestChats.delete(ip);
     this.lobbyMessages = this.lobbyMessages.filter(message => now - message.sentAt < LOBBY_CHAT_MS);
   }
   marketCount() {
@@ -341,16 +363,13 @@ export class Market {
         if (lastChat !== undefined && now - lastChat < chatCooldown) return problem('잠시 후 다시 말해 주세요.', 429);
         speech = { playerId: player.id, name: player.name, text, sentAt: now, expiresAt: now + CHAT_MS };
         lastChat = now;
-        if (room === 'lobby') {
-          this.lobbyMessages.push(speech);
-          if (this.lobbyMessages.length > LOBBY_CHAT_LIMIT) this.lobbyMessages.shift();
-        }
+        if (room === 'lobby') this.addLobbyMessage(speech);
       }
       const watchId = room === 'market' ? previous.watchId ?? ++this.nextWatchId : undefined;
       const entryRound = room === 'market' ? previous.entryRound ?? lastClose : undefined;
       this.people.set(player.id, { id: player.id, name: player.name, room, entryRound, x, z, seen: now, idle: !open, speech, lastChat, look, watchId, pickup });
       const roomPeople = [...this.people.values()].filter(person => person.room === room);
-      const ranking = this.query('SELECT id, name, collected FROM players WHERE collected > 0 ORDER BY collected DESC, reached ASC, id ASC LIMIT 30');
+      const ranking = this.collectionRanking();
       const myRank = player.collected ? this.get(
         'SELECT COUNT(*) + 1 AS rank FROM players WHERE collected > ? OR (collected = ? AND (reached, id) < (?, ?))',
         player.collected, player.collected, player.reached, player.id).rank : null;
@@ -391,7 +410,13 @@ export function endpoint(market, request, allowedOrigins = '', ip = 'local', pub
   const send = (body, status = 200) => new Response(JSON.stringify(body), { status, headers });
   if (!permitted) return send({ error: '이 사이트에서는 장터에 연결할 수 없어요.' }, 403);
   if (request.method === 'GET') {
-    return send(market.marketStatus(Date.now(), new URL(request.url).searchParams.get('watch') === '1'));
+    const params = new URL(request.url).searchParams;
+    const status = market.marketStatus(Date.now(), params.get('watch') === '1');
+    if (params.get('lobby') === '1') status.lobbyMessages = market.lobbyMessages.slice();
+    const ranking = params.get('ranking');
+    if (ranking === 'all') status.publicRanking = { kind: ranking, rows: market.collectionRanking() };
+    if (ranking === 'rare') status.publicRanking = { kind: ranking, rows: market.rareRanking().rows };
+    return send(status);
   }
   if (request.method !== 'POST') return send({ error: 'GET과 POST 요청만 받습니다.' }, 405);
   return (async () => {
@@ -410,6 +435,13 @@ export function endpoint(market, request, allowedOrigins = '', ip = 'local', pub
       }
       let data;
       try { data = JSON.parse(raw); } catch { return send({ error: '요청을 읽을 수 없어요.' }, 400); }
+      if (data?.action === 'guest-lobby-chat') {
+        if (!origin) return send({ error: '게임 화면에서 채팅해 주세요.' }, 403);
+        const result = market.guestLobbyChat(data.text, Date.now(), ip);
+        if (result.error) return send({ error: result.error }, result.status);
+        publish?.('chat', { room: 'lobby', speech: result.speech });
+        return send(result);
+      }
       if (data?.action === 'logout') {
         market.logout(data.token);
         return send({ ok: true });

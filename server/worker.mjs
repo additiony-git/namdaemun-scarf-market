@@ -33,8 +33,8 @@ export class MarketRoom extends DurableObject {
     return endpoint(this.market, request, this.allowedOrigins, request.headers.get('CF-Connecting-IP') || 'unknown',
       (action, { now, lastClose, stock, goods, revision, round, slot, nextSlot, next, open, closes, speech, testing, rare, room, marketOnline, marketCapacity, rarePickup, player, queueAdvanced }) => {
         const key = [round, open, revision, lastClose, marketOnline].join(':');
-        const changed = key !== this.lastMarketStatus;
-        this.lastMarketStatus = key;
+        const changed = Number.isFinite(revision) && key !== this.lastMarketStatus;
+        if (changed) this.lastMarketStatus = key;
         const pickup = action === 'buy' && rarePickup?.id === player.id && rarePickup.sentAt === now ? rarePickup : null;
         const checkCrowd = changed || pickup || (room === 'market' &&
           (action === 'chat' || action === 'profile' || now - (this.lastCrowdAt ?? 0) >= 2000));
@@ -55,7 +55,8 @@ export class MarketRoom extends DurableObject {
           try {
             const state = socketState(socket);
             if (status) socket.send(status);
-            if (chat && state.room === room) socket.send(chat);
+            const seesLobbyChat = room === 'lobby' && state.room === 'watch' && state.requestedRoom !== 'market';
+            if (chat && (state.room === room || seesLobbyChat)) socket.send(chat);
             if (queueAdvanced && state.room === 'lobby') socket.send('{"type":"queue-advanced"}');
             if (crowd && state.watching) socket.send(crowd);
             if (pickup && (state.watching || state.room === 'market')) {
