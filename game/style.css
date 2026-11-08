@@ -445,7 +445,7 @@ kbd { display: inline-grid; place-items: center; min-width: 21px; height: 22px; 
   display: flex; align-items: center; gap: 6px; width: min(390px, calc(100vw - 24px));
   padding: 6px; border: 1px solid #91bba8a8; border-radius: 9px; background: #1e2722f5; box-shadow: 0 5px 20px #13130b95;
 }
-.chat-form input { min-width: 0; flex: 1; padding: 7px; border: 1px solid #6c8879; border-radius: 6px; background: #151d18; color: #ecf9ef; font-size: 14px; }
+.chat-form input { min-width: 0; flex: 1; padding: 7px; border: 1px solid #6c8879; border-radius: 6px; background: #151d18; color: #ecf9ef; font-size: 16px; }
 .chat-form .icon-btn { width: 31px; height: 31px; flex: none; }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 
