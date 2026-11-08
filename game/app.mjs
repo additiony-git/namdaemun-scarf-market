@@ -38,6 +38,8 @@ function icons(root=document) {
 icons();
 
 const endpoint = MARKET_API;
+const lobbyWaitEntry=$('lobby-wait-entry');
+lobbyWaitEntry.hidden=!endpoint;
 const tokenKey = 'ndm-token-v1:' + (endpoint || 'offline');
 const demoKey = 'ndm-demo-v1';
 const temporary=new Map();
@@ -374,9 +376,12 @@ function renderEntrance(session, now){
   const full=seatsFull();
   const button=$('enter-market');
   button.disabled=cancelQueue||(entryRequested&&!waitingPosition);
-  const label=waitingPosition?'대기 '+waitingPosition+'번 · 구경하기'
-    :entryRequested?'입장 확인 중':full?'선착순 줄서기':open?'시장 입장하기':'미리 입장하기';
+  lobbyWaitEntry.disabled=button.disabled;
+  const label=waitingPosition?'내 대기 '+waitingPosition+'번'
+    :entryRequested?'입장 확인 중':endpoint?'선착순 줄서기':'시장 입장하기';
   setText('enter-market-label',label);
+  if(waitingPosition)button.setAttribute('aria-label',label+' · 시장 구경하기');
+  else button.removeAttribute('aria-label');
   $('queue-card').dataset.state=waitingPosition?'queue':full?'full':open?'open':'waiting';
   setText('queue-heading',open?(session.testing?'테스트 장 판매 중':session.slot+'차 판매 중'):session.nextSlot+'차 개장까지');
   const nextDate=seoulDay(session.next)===seoulDay(now)?shortTime.format(session.next):openingTime.format(session.next);
@@ -685,7 +690,7 @@ function renderSpectator(rotateVendor=false){
   setText('watch-time',countdownText((session.open?session.closes:session.next)-now));
   $('watch-enter').hidden=Boolean(waitingPosition);
   $('watch-enter').disabled=cancelQueue||entryRequested;
-  const watchEntryLabel=endpoint?'대기자 입장하기':session.open?'시장 입장하기':'미리 입장하기';
+  const watchEntryLabel=endpoint?'대기자 입장하기':'시장 입장하기';
   setText('watch-enter',cancelQueue?'줄서기 취소 중':entryRequested?'입장 확인 중':watchEntryLabel);
   $('watch-refresh').hidden=!endpoint||feed?.readyState===WebSocket.OPEN;
   $('watch-refresh').disabled=Date.now()<watchRefreshAt;
@@ -1176,6 +1181,10 @@ function showMarket(session){
 }
 $('enter-market').onclick=enterMarket;
 $('spectate-market').onclick=()=>openSpectator();
+lobbyWaitEntry.onclick=()=>{
+  openSpectator();
+  if(!waitingPosition)enterMarket();
+};
 $('watch-exit').onclick=closeSpectator;
 $('watch-enter').onclick=enterMarket;
 $('watch-cancel').onclick=()=>{
