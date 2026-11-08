@@ -373,19 +373,24 @@ function renderEntrance(session, now){
   const open=session.open&&now<session.closes;
   const full=seatsFull();
   const button=$('enter-market');
+  const watchButton=$('spectate-market');
+  const watchHadFocus=document.activeElement===watchButton;
   button.disabled=cancelQueue||(entryRequested&&!waitingPosition);
+  watchButton.hidden=full;
+  if(full&&watchHadFocus&&!button.disabled)button.focus({preventScroll:true});
   const label=waitingPosition?'내 대기 '+waitingPosition+'번'
-    :entryRequested?'입장 확인 중':endpoint?'선착순 입장하기':'시장 입장하기';
+    :entryRequested?'입장 확인 중':full?'대기자 입장하기':endpoint?'선착순 입장하기':'시장 입장하기';
   setText('enter-market-label',label);
   if(waitingPosition)button.setAttribute('aria-label',label+' · 관람 화면 열기');
   else button.removeAttribute('aria-label');
   $('queue-card').dataset.state=waitingPosition?'queue':full?'full':open?'open':'waiting';
+  $('queue-full').hidden=!full;
   setText('queue-heading',open?(session.testing?'테스트 장 판매 중':session.slot+'차 판매 중'):session.nextSlot+'차 개장까지');
   const nextDate=seoulDay(session.next)===seoulDay(now)?shortTime.format(session.next):openingTime.format(session.next);
   const marketOnline=watchStatus?.marketOnline??0;
   const capacity=watchStatus?.marketCapacity??MARKET_CAPACITY;
   const entryDetail=endpoint?'입장 '+marketOnline+'/'+capacity+'명':'혼자 체험';
-  const entryNote=endpoint?' · '+(full?'줄서기 가능':'선착순'):'';
+  const entryNote=endpoint&&!full?' · 선착순':'';
   setText('queue-detail',(open?'':'개장 '+nextDate+' · ')+entryDetail+entryNote);
   setText('queue-countdown',countdownText((open?session.closes:session.next)-now));
 }
@@ -773,7 +778,9 @@ function closeSpectator(){
   $('world').setAttribute('aria-hidden','true');
   world?.leaveMarket();
   $('entrance').hidden=false;
-  $('spectate-market').focus({preventScroll:true});
+  const watchButton=$('spectate-market');
+  const returnFocus=watchButton.hidden?$('enter-market'):watchButton;
+  returnFocus.focus({preventScroll:true});
   if(!waitingPosition&&endpoint)queue(0);
 }
 function toast(message){
@@ -1176,7 +1183,10 @@ function showMarket(session){
   world?.enterMarket();
   world?.setStock(closedStock,session.slot);
 }
-$('enter-market').onclick=enterMarket;
+$('enter-market').onclick=()=>{
+  if(seatsFull()&&!waitingPosition)openSpectator();
+  enterMarket();
+};
 $('spectate-market').onclick=()=>openSpectator();
 $('watch-exit').onclick=closeSpectator;
 $('watch-enter').onclick=enterMarket;

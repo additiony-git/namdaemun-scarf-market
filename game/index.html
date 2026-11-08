@@ -50,7 +50,10 @@
               <ol class="market-hours-list" id="market-hours-list" aria-label="매일 개장 시간"></ol>
             </section>
             <section class="queue-card" id="queue-card" aria-label="남대문 스카프 상회 장터 상태">
-              <div><strong id="queue-heading">다음 장</strong><small id="queue-detail">개장 시간을 확인하고 있어요</small></div>
+              <div>
+                <div class="queue-title"><strong id="queue-heading">다음 장</strong><span id="queue-full" class="queue-full" role="status" hidden>선착순 다 참</span></div>
+                <small id="queue-detail">개장 시간을 확인하고 있어요</small>
+              </div>
               <strong id="queue-countdown" role="timer" aria-live="off">--:--</strong>
             </section>
           </div>
