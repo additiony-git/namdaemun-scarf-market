@@ -1,4 +1,4 @@
-export const START_MONEY = 2000;
+export const ROUND_CURRENCY = 5000;
 export const CHAT_MS = 7_000;
 export const CHAT_FEED_MS = 20_000;
 export const CHAT_LIMIT = 80;

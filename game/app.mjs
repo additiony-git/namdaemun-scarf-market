@@ -1,4 +1,4 @@
-import { AVATAR_OPTIONS, CHAT_FEED_MS, CHAT_LIMIT, CHAT_MS, DEFAULT_LOOK, EMPTY_STOCK, JUNK, LINES, LOBBY_CHAT_LIMIT, LOBBY_CHAT_MS, MARKET_ITEMS, SCARVES, SPAWN, START_MONEY, avatarOptionsFor, chatText, marketQueue, marketRare, marketSession, niceName, normalizeLook, roundCloth, roundStock, seoulDay, seoulDayStart } from './catalog.mjs';
+import { AVATAR_OPTIONS, CHAT_FEED_MS, CHAT_LIMIT, CHAT_MS, DEFAULT_LOOK, EMPTY_STOCK, JUNK, LINES, LOBBY_CHAT_LIMIT, LOBBY_CHAT_MS, MARKET_ITEMS, ROUND_CURRENCY, SCARVES, SPAWN, avatarOptionsFor, chatText, marketQueue, marketRare, marketSession, niceName, normalizeLook, roundCloth, roundStock, seoulDay, seoulDayStart } from './catalog.mjs';
 import { MARKET_API } from './config.mjs';
 import { createWorld, drawAvatarPreview } from './world.mjs';
 
@@ -43,7 +43,7 @@ const demoKey = 'ndm-demo-v1';
 const temporary=new Map();
 function read(key){try{return localStorage.getItem(key);}catch{return temporary.get(key)??null;}}
 function write(key,value){temporary.set(key,value);try{localStorage.setItem(key,value);}catch{/* keep this session playable */}}
-const blank = () => ({ id:'solo', name:'새내기 손님', cash:START_MONEY, collected:0, rank:null });
+const blank = () => ({ id:'solo', name:'새내기 손님', cash:0, collected:0, rank:null });
 let token=read(tokenKey), model, world, mode=endpoint?'loading':'solo', modal='', busy=false, timeOffset=0, misses=0, lastPos='', syncTimer;
 let enteredMarket=false, roomRevision=0;
 let entranceSchedule, selectedMarket=0;
@@ -72,10 +72,12 @@ function demo(action='sync', extra={}) {
   const initial=roundStock(session.slot);
   const day=seoulDay(now);
   if(data.player.name==='새내기 상인')data.player.name='새내기 손님';
+  let currencyGrant;
   if(enteredMarket&&session.open&&data.round!==session.round){
     data.round=session.round;
     data.stock={...initial};
-    data.player.cash=Math.max(data.player.cash,START_MONEY);
+    data.player.cash+=ROUND_CURRENCY;
+    currencyGrant=ROUND_CURRENCY;
   }
   const p=data.player;
   const stock={...initial};
@@ -101,7 +103,7 @@ function demo(action='sync', extra={}) {
     if(!session.open)throw Error('장이 닫혔어요. 다음 개장 시간을 확인해 주세요.');
     if(!initial[item.id]&&item.id!==rare)throw Error('이 상품은 이번 장에서 판매하지 않아요.');
     if(!stock[item.id]) throw Error('이번 장에는 품절이에요. 다음 장을 기다려 주세요.');
-    if(p.cash<item.price) throw Error('장터돈이 부족해요. 다음 장이 열리면 예산이 다시 채워져요.');
+    if(p.cash<item.price) throw Error('지역화폐가 부족해요. 다음 장에 입장하면 '+format(ROUND_CURRENCY)+'원을 받아요.');
     stock[item.id]--;
     if(item.rare)data.rareSoldDay=day;
     else data.stock[item.id]=stock[item.id];
@@ -116,7 +118,7 @@ function demo(action='sync', extra={}) {
   const used=session.open?roundCloth(session.slot).reduce((n,item)=>n+item.count-stock[item.id],0)+Number(Boolean(rare)&&data.rareSoldDay===day):500;
   const phase=Math.max(session.open?session.round:session.closes/60_000,seoulDayStart(now)/60_000);
   return {...data,...session,rare,stock:session.open?stock:closedStock,
-    online:1,peers:[],ranking:p.collected?[p]:[],now,revision:phase*1000+used,event};
+    online:1,peers:[],ranking:p.collected?[p]:[],now,revision:phase*1000+used,event,currencyGrant};
 }
 async function request(action, extra={}, room=activeRoom()){
   const response=await fetch(endpoint,{
@@ -144,6 +146,7 @@ function setModel(data){
     for(const speech of data.lobbyMessages??[])showLobbyChat(speech);
   }
   render();
+  if(enteredMarket&&data.currencyGrant)toast('이번 장 지역화폐 '+format(data.currencyGrant)+'원을 받았어요.');
 }
 function marketAvailability(snapshot=inventory){
   if(!snapshot)return 'loading';

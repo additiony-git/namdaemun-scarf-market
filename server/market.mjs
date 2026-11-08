@@ -1,4 +1,4 @@
-import { CHAT_FEED_MS, CHAT_LIMIT, CHAT_MS, EMPTY_STOCK, JUNK, LOBBY_CHAT_LIMIT, LOBBY_CHAT_MS, MAP, MARKET_ITEMS, SPAWN, START_MONEY, chatText, fit, marketRare, marketSession, niceName, normalizeLook, roundCloth, roundStock, seoulDay, seoulDayStart } from '../game/catalog.mjs';
+import { CHAT_FEED_MS, CHAT_LIMIT, CHAT_MS, EMPTY_STOCK, JUNK, LOBBY_CHAT_LIMIT, LOBBY_CHAT_MS, MAP, MARKET_ITEMS, ROUND_CURRENCY, SPAWN, chatText, fit, marketRare, marketSession, niceName, normalizeLook, roundCloth, roundStock, seoulDay, seoulDayStart } from '../game/catalog.mjs';
 
 const defaultName = '새내기 손님';
 const presenceMs = 30_000;
@@ -20,12 +20,28 @@ export class Market {
     query('CREATE TABLE IF NOT EXISTS cloth_sales (round INTEGER NOT NULL, item TEXT NOT NULL, qty INTEGER NOT NULL, PRIMARY KEY(round, item))');
     query('CREATE TABLE IF NOT EXISTS basket (player TEXT NOT NULL, item TEXT NOT NULL, qty INTEGER NOT NULL, updated INTEGER NOT NULL, PRIMARY KEY(player, item))');
     query('CREATE TABLE IF NOT EXISTS allowances (player TEXT PRIMARY KEY, round INTEGER NOT NULL)');
+    query('CREATE TABLE IF NOT EXISTS round_currency (player TEXT NOT NULL, round INTEGER NOT NULL, PRIMARY KEY (player, round))');
     query('CREATE TABLE IF NOT EXISTS looks (player TEXT PRIMARY KEY, hat TEXT NOT NULL, coat TEXT NOT NULL, bag TEXT NOT NULL, scarf TEXT NOT NULL)');
     query('CREATE TABLE IF NOT EXISTS avatar_styles (player TEXT PRIMARY KEY, character TEXT NOT NULL)');
     query('CREATE TABLE IF NOT EXISTS character_outfits (player TEXT NOT NULL, character TEXT NOT NULL, hat TEXT NOT NULL, coat TEXT NOT NULL, bag TEXT NOT NULL, scarf TEXT NOT NULL, PRIMARY KEY (player, character))');
     query('CREATE TABLE IF NOT EXISTS daily_rare_sales (day INTEGER PRIMARY KEY)');
   }
   get(sql, ...args) { return this.query(sql, ...args)[0]; }
+  issueRoundCurrency(player, round) {
+    if (this.get('SELECT 1 FROM round_currency WHERE player = ? AND round = ?', player.id, round)) return;
+    const legacy = this.get('SELECT round FROM allowances WHERE player = ?', player.id);
+    if (!legacy && player.name === '새내기 상인' &&
+        !this.get('SELECT 1 FROM round_currency WHERE player = ? LIMIT 1', player.id)) {
+      this.query('UPDATE players SET name = ? WHERE id = ?', defaultName, player.id);
+      player.name = defaultName;
+    }
+    this.query('INSERT INTO round_currency (player, round) VALUES (?, ?)', player.id, round);
+    // The old allowance already applied to anyone who entered this round before the update.
+    if (legacy?.round === round) return;
+    this.query('UPDATE players SET cash = cash + ? WHERE id = ?', ROUND_CURRENCY, player.id);
+    player.cash += ROUND_CURRENCY;
+    return ROUND_CURRENCY;
+  }
   prune(now) {
     for (const [id, p] of this.people) if (now - p.seen > presenceMs) this.people.delete(id);
     for (const [ip, p] of this.joins) if (now - p.at > 60_000) this.joins.delete(ip);
@@ -78,24 +94,15 @@ export class Market {
         if (last?.count >= 12) return problem('잠시 후 다시 입장해 주세요.', 429);
         this.joins.set(ip, { at: last?.at ?? now, count: (last?.count ?? 0) + 1 });
         issued = newToken();
-        player = { id: crypto.randomUUID(), token: issued, name: defaultName, cash: START_MONEY, sold: 0, collected: 0, reached: 0, traded: 0 };
-        this.query('INSERT INTO players (id, token, name, cash) VALUES (?, ?, ?, ?)', player.id, issued, player.name, START_MONEY);
+        player = { id: crypto.randomUUID(), token: issued, name: defaultName, cash: 0, sold: 0, collected: 0, reached: 0, traded: 0 };
+        this.query('INSERT INTO players (id, token, name, cash) VALUES (?, ?, ?, ?)', player.id, issued, player.name, player.cash);
       }
       if (!player) return problem('장터에 다시 입장해 주세요.', 401);
       const session = this.session(now);
       const { round, open } = session;
-      const allowance = this.get('SELECT round FROM allowances WHERE player = ?', player.id);
-      if (room === 'market' && open && allowance?.round !== round) {
-        this.query('INSERT INTO allowances VALUES (?, ?) ON CONFLICT(player) DO UPDATE SET round = excluded.round', player.id, round);
-        if (!allowance && player.name === '새내기 상인') {
-          this.query('UPDATE players SET name = ? WHERE id = ?', defaultName, player.id);
-          player.name = defaultName;
-        }
-        if (player.cash < START_MONEY) {
-          this.query('UPDATE players SET cash = ? WHERE id = ?', START_MONEY, player.id);
-          player.cash = START_MONEY;
-        }
-      }
+      const currencyGrant = room === 'market' && open && (action === 'join' || action === 'sync')
+        ? this.issueRoundCurrency(player, round) ?? null
+        : null;
       const previous = this.people.get(player.id) ?? SPAWN;
       const x = fit(pos?.x, MAP.minX, MAP.maxX, previous.x);
       const z = fit(pos?.z, MAP.minZ, MAP.maxZ, previous.z);
@@ -142,7 +149,9 @@ export class Market {
         if (!inventory.stock[item.id]) {
           return problem('다른 손님이 먼저 가져갔어요. 다음 장을 기다려 주세요.', 409);
         }
-        if (player.cash < item.price) return problem('장터돈이 부족해요. 다음 장이 열리면 예산이 다시 채워져요.', 409);
+        if (player.cash < item.price) {
+          return problem(`지역화폐가 부족해요. 다음 장에 입장하면 ${ROUND_CURRENCY.toLocaleString('ko-KR')}원을 받아요.`, 409);
+        }
         if (item.rare) {
           this.query('INSERT INTO daily_rare_sales VALUES (?)', seoulDay(now));
         } else {
@@ -173,7 +182,7 @@ export class Market {
       const outfits = Object.fromEntries(this.query('SELECT character, hat, coat, bag, scarf FROM character_outfits WHERE player = ?', player.id).map(row=>[row.character,normalizeLook(row)]));
       outfits[look.character] = look;
       return {
-        token: issued, event, room, speech: speech?.sentAt + CHAT_FEED_MS > now ? speech : undefined, now, ...this.inventory(now, session),
+        token: issued, event, room, currencyGrant, speech: speech?.sentAt + CHAT_FEED_MS > now ? speech : undefined, now, ...this.inventory(now, session),
         player: { id: player.id, name: player.name, cash: player.cash, sold: player.sold, collected: player.collected, rank: myRank, look, outfits },
         basket: this.query('SELECT item, qty, updated FROM basket WHERE player = ? ORDER BY updated DESC, item', player.id),
         ranking, online: roomPeople.length,

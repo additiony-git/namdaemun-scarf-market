@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { DatabaseSync } from 'node:sqlite';
 import { Market, endpoint } from '../server/market.mjs';
-import { CHAT_FEED_MS, CHAT_MS, DEFAULT_LOOK, LOBBY_CHAT_MS, MARKET_DURATION, MARKET_INTERVAL, QUEUE_LEAD, RARE_SCARVES, START_MONEY, dailyRare, marketQueue, marketSession, roundCloth, roundStock } from '../game/catalog.mjs';
+import { CHAT_FEED_MS, CHAT_MS, DEFAULT_LOOK, LOBBY_CHAT_MS, MARKET_DURATION, MARKET_INTERVAL, QUEUE_LEAD, RARE_SCARVES, ROUND_CURRENCY, dailyRare, marketQueue, marketSession, roundCloth, roundStock } from '../game/catalog.mjs';
 
 const midnight=Date.parse('2026-11-08T00:00:00+09:00');
 const start=marketSession(midnight).next;
@@ -86,6 +86,40 @@ test('each round has distinct goods and rejects purchases from the other rounds'
   }
 });
 
+test('entrants receive one currency grant per open round and keep unspent funds', t=>{
+  const data=setup();t.after(data.close);
+  const market=data.create();
+  const guest=market.action({action:'join',room:'lobby'},start-1);
+  assert.equal(guest.player.cash,0);
+  const sync=(room,at,instance=market)=>instance.action({action:'sync',room,token:guest.token},at);
+  assert.equal(sync('market',start-1).currencyGrant,null);
+  assert.equal(sync('lobby',start).currencyGrant,null);
+  assert.equal(sync('market',start).currencyGrant,5000);
+  market.action({action:'buy',item:'scarf',token:guest.token},start+500);
+  sync('lobby',start+1000);
+  const reentry=sync('market',start+1200,data.create());
+  assert.equal(reentry.currencyGrant,null);
+  assert.equal(reentry.player.cash,4300);
+  const second=sync('market',start+MARKET_INTERVAL);
+  assert.equal(second.currencyGrant,5000);
+  assert.equal(second.player.cash,9300);
+});
+
+test('returning from a test round keeps the regular round grant and respects older allowances', t=>{
+  const data=setup();t.after(data.close);
+  const from=start+5*60_000, until=from+2*60_000;
+  const market=data.create({from,until});
+  const legacy=market.action({action:'join',room:'lobby'},start-100);
+  data.db.prepare('INSERT INTO allowances VALUES (?, ?)').run(legacy.player.id,marketSession(start).round);
+  data.db.prepare('UPDATE players SET cash = 1200 WHERE id = ?').run(legacy.player.id);
+  const sync=at=>market.action({action:'sync',token:legacy.token},at);
+  assert.equal(sync(start).player.cash,1200);
+  assert.equal(sync(from).currencyGrant,5000);
+  const returned=sync(until);
+  assert.equal(returned.currencyGrant,null);
+  assert.equal(returned.player.cash,6200);
+});
+
 test('two shoppers share one limited stock; only the first gets the last item, then the next round refills', async t=>{
   const data=setup();t.after(data.close);
   const market=data.create();
@@ -100,26 +134,26 @@ test('two shoppers share one limited stock; only the first gets the last item, t
   const contenders=await Promise.all([b,a].map(token=>Promise.resolve().then(()=>market.action({action:'buy',item:'hanky',token},at))));
   assert.equal(contenders[0].stock.hanky,0);
   assert.equal(contenders[0].revision,first.revision+1);
-  assert.equal(contenders[0].player.cash,START_MONEY-450);
+  assert.equal(contenders[0].player.cash,ROUND_CURRENCY-450);
   assert.equal(contenders[1].status,409);
   const state=market.action({action:'sync',token:a},at);
   assert.equal(state.stock.hanky,0);
   assert.deepEqual(state.basket,[]);
-  assert.equal(state.player.cash,START_MONEY);
+  assert.equal(state.player.cash,ROUND_CURRENCY);
   assert.equal(state.online,3);
   assert.equal(state.peers[0].id,contenders[0].player.id);
   const closing=start+MARKET_DURATION;
   assert.equal(market.action({action:'buy',item:'scarf',token:b},closing).status,409);
   const closed=market.action({action:'sync',token:b},closing);
   assert.ok(closed.revision>contenders[0].revision);
-  assert.equal(closed.player.cash,START_MONEY-450);
+  assert.equal(closed.player.cash,ROUND_CURRENCY-450);
   assert.equal(closed.stock.scarf,0);
   const next=closed.next;
   const refill=market.action({action:'sync',token:b},next);
   assert.deepEqual(refill.stock,roundStock(2));
-  assert.equal(refill.player.cash,START_MONEY);
+  assert.equal(refill.player.cash,2*ROUND_CURRENCY-450);
   market.action({action:'buy',item:'ink-edge',token:b},next+400);
-  assert.equal(market.action({action:'sync',token:b},next+800).player.cash,START_MONEY-430);
+  assert.equal(market.action({action:'sync',token:b},next+800).player.cash,2*ROUND_CURRENCY-450-430);
 });
 
 test('preparation pauses junk sales while preserving earlier baskets and rank ties', t=>{
@@ -162,8 +196,9 @@ test('HTTP requires the configured origin and a valid token for trades', async t
   const p=await join.json();
   const sold=await endpoint(market,req({action:'sell',item:'scarf',token:p.token}),origin);
   assert.equal(sold.status,400);
+  market.action({action:'sync',token:p.token},start);
   const bought=market.action({action:'buy',item:'scarf',token:p.token,price:0},start);
-  assert.equal(bought.player.cash,START_MONEY-700);
+  assert.equal(bought.player.cash,ROUND_CURRENCY-700);
   assert.equal(bought.stock.scarf,firstStock.scarf-1);
   assert.equal(bought.basket[0].item,'scarf');
   assert.equal(bought.player.collected,0);
@@ -231,7 +266,7 @@ test('profile saves purchased clothing and shares the look without sharing the b
   market.action({action:'buy',token:guest.token,item:look.scarf},start+400);
   const saved=market.action(save,start+500);
   assert.deepEqual(saved.player.look,look);
-  assert.equal(saved.player.cash,START_MONEY-750);
+  assert.equal(saved.player.cash,ROUND_CURRENCY-750);
   assert.equal(saved.basket[0].item,look.scarf);
   const other=market.action({action:'sync',token:neighbor.token},start+700);
   assert.deepEqual(other.peers[0].look,look);
@@ -316,7 +351,7 @@ test('the third round has the daily rare scarf and a same-day test cannot refill
   assert.equal(count(market.inventory(start+MARKET_INTERVAL)),0);
   assert.equal(count(market.inventory(third)),1);
   const purchased=market.action({action:'buy',token:first.token,item:rare.id},third+100);
-  assert.equal(purchased.player.cash,START_MONEY-rare.price);
+  assert.equal(purchased.player.cash,ROUND_CURRENCY-rare.price);
   assert.equal(purchased.basket[0].item,rare.id);
   assert.equal(count(purchased),0);
   assert.equal(market.action({action:'buy',token:second.token,item:rare.id},third+100).status,409);
