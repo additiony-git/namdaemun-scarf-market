@@ -472,7 +472,7 @@ kbd { display: inline-grid; place-items: center; min-width: 21px; height: 22px; 
 .shop-closed p { margin: 0; color: var(--muted); font-size: 11px; }
 .shop-soldout { border-color: #e9a45caa; background: #60392289; }
 .shop-soldout p span { color: var(--muted); font-size: 9px; }
-.daily-rare { margin-bottom: 7px; padding: 6px 7px; border: 1px solid #d9a2628c; border-radius: 6px; color: #ffdd91; background: #543923; font-size: 10px; font-weight: 900; }
+.round-rare { margin-bottom: 7px; padding: 6px 7px; border: 1px solid #d9a2628c; border-radius: 6px; color: #ffdd91; background: #543923; font-size: 10px; font-weight: 900; }
 .rare-tag { display: inline-flex; align-items: center; gap: 3px; margin-left: 5px; padding: 1px 5px; border-radius: 4px; background: #f1c368; color: #382411; font-size: 9px; font-weight: 900; vertical-align: 1px; white-space: nowrap; }
 .rare-tag > span { color: #805019; }
 .closed-tag { color: var(--muted); font-size: 9px; font-weight: 800; letter-spacing: .12em; }

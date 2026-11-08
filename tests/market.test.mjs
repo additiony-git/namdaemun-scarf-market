@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { DatabaseSync } from 'node:sqlite';
 import { Market, endpoint } from '../server/market.mjs';
-import { CHAT_FEED_MS, CHAT_MS, DEFAULT_LOOK, LOBBY_CHAT_MS, MARKET_CAPACITY, MARKET_DURATION, RARE_PICKUP_MS, RARE_SCARVES, ROUND_CURRENCY, dailyRare, marketSession, roundCloth, roundStock } from '../game/catalog.mjs';
+import { CHAT_FEED_MS, CHAT_MS, DEFAULT_LOOK, LOBBY_CHAT_MS, MARKET_CAPACITY, MARKET_DURATION, RARE_PICKUP_MS, RARE_SCARVES, ROUND_CURRENCY, marketRare, marketSession, roundCloth, roundStock, seoulDay } from '../game/catalog.mjs';
 
 const midnight=Date.parse('2026-11-08T00:00:00+09:00');
 const openingHours=[12,20,22];
@@ -57,7 +57,7 @@ test('each round has distinct goods and rejects purchases from the other rounds'
     assert.equal(items.filter(i=>i.group==='hanky').length,4);
     for(const item of items){assert.ok(!allIds.has(item.id));allIds.add(item.id);}
     const state=market.inventory(at);
-    const rare=slot===3?{[dailyRare(at).id]:1}:{};
+    const rare={[marketRare(state).id]:1};
     assert.deepEqual(state.stock,{...roundStock(slot),...rare});
     market.action({action:'sync',token:guest.token},at);
     const otherItem=roundCloth(slot%3+1)[0];
@@ -255,7 +255,7 @@ test('two shoppers share one limited stock; only the first gets the last item, t
   assert.equal(closed.stock.scarf,0);
   const next=closed.next;
   const refill=market.action({action:'sync',token:b},next);
-  assert.deepEqual(refill.stock,roundStock(2));
+  assert.deepEqual(refill.stock,{...roundStock(2),[marketRare(marketSession(next)).id]:1});
   assert.equal(refill.player.cash,2*ROUND_CURRENCY-450);
   market.action({action:'buy',item:'ink-edge',token:b},next+400);
   assert.equal(market.action({action:'sync',token:b},next+800).player.cash,2*ROUND_CURRENCY-450-430);
@@ -452,25 +452,34 @@ test('a regular market can close after a test ends during its opening', t=>{
   assert.equal(closed.open,false);
 });
 
-test('the third round has the daily rare scarf and a same-day test cannot refill it', t=>{
+test('each round stocks one distinct rare scarf and only the first shopper gets it', t=>{
   const data=setup();t.after(data.close);
   const third=night;
   const from=third+MARKET_DURATION+60_000;
   const market=data.create({from,until:from+120_000});
   const first=market.action({action:'join'},start);
   const second=market.action({action:'join'},start);
-  const rare=dailyRare(start);
+  const rare=marketRare(marketSession(third));
   const count=state=>RARE_SCARVES.reduce((sum,item)=>sum+state.stock[item.id],0);
-  assert.equal(count(first),0);
-  assert.equal(count(market.inventory(evening)),0);
+  const regularRares=[start,evening,night].map(at=>market.inventory(at).rare);
+  assert.equal(new Set(regularRares).size,3);
+  for(const at of [start,evening]){
+    const stock=market.inventory(at);
+    assert.equal(count(stock),1);
+    market.action({action:'sync',token:second.token},at);
+    const bought=market.action({action:'buy',token:second.token,item:stock.rare},at+100);
+    assert.equal(count(bought),0);
+    market.action({action:'sync',token:first.token},at+100);
+    assert.equal(market.action({action:'buy',token:first.token,item:stock.rare},at+100).status,409);
+  }
   assert.equal(count(market.inventory(third)),1);
   market.action({action:'sync',token:first.token},third);
   market.action({action:'sync',token:second.token},third);
   const purchased=market.action({action:'buy',token:first.token,item:rare.id},third+100);
-  assert.equal(purchased.player.cash,2*ROUND_CURRENCY-rare.price);
+  assert.equal(purchased.player.cash,3*ROUND_CURRENCY-rare.price);
   assert.equal(purchased.basket[0].item,rare.id);
   assert.equal(count(purchased),0);
-  assert.equal(purchased.dailyRareSold,true);
+  assert.equal(count(data.create().inventory(third+100)),0);
   const pickup={id:first.player.id,item:rare.id,sentAt:third+100,expiresAt:third+100+RARE_PICKUP_MS};
   const {watchId,...announcement}=purchased.rarePickup;
   assert.ok(Number.isInteger(watchId));
@@ -482,12 +491,28 @@ test('the third round has the daily rare scarf and a same-day test cannot refill
   assert.deepEqual(watcher.rarePickup,{...pickup,id:watchId});
   assert.ok(watcher.crowd.some(person=>person.id===watcher.rarePickup.id));
   assert.equal(market.action({action:'sync',token:second.token},pickup.expiresAt).rarePickup,undefined);
-  assert.equal(market.marketStatus(third+MARKET_DURATION).dailyRareSold,true);
+  assert.equal(count(market.marketStatus(third+MARKET_DURATION)),0);
   const later=market.action({action:'sync',token:second.token},from);
-  assert.equal(count(later),0);
+  assert.equal(count(later),1);
   assert.equal(later.stock.scarf,firstStock.scarf);
   const tomorrow=market.action({action:'sync',token:second.token},night+86_400_000);
   assert.equal(count(tomorrow),1);
-  assert.equal(tomorrow.dailyRareSold,false);
   assert.notEqual(tomorrow.rare,rare.id);
+});
+
+test('a previously sold daily rare stays sold in its original round', t=>{
+  const data=setup();t.after(data.close);
+  const from=start-3*60_000;
+  const market=data.create({from,until:from+60_000});
+  const guest=market.action({action:'join',room:'lobby'},from);
+  const rare=marketRare(marketSession(night)).id;
+  data.db.prepare('INSERT INTO daily_rare_sales VALUES (?)').run(seoulDay(night));
+  data.db.prepare('INSERT INTO basket VALUES (?, ?, ?, ?)').run(guest.player.id,rare,1,from+1000);
+  assert.equal(market.inventory(from+2000).stock[rare],0);
+  assert.equal(market.inventory(night).stock[rare],1);
+  data.db.prepare('UPDATE basket SET updated = ? WHERE player = ? AND item = ?').run(night+1000,guest.player.id,rare);
+  assert.equal(market.inventory(night+2000).stock[rare],0);
+  const entrant=market.action({action:'sync',token:guest.token},night+2000);
+  assert.equal(entrant.basket[0].item,rare);
+  assert.equal(market.action({action:'buy',token:guest.token,item:rare},night+2100).status,409);
 });

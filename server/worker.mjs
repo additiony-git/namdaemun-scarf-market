@@ -29,7 +29,7 @@ export class MarketRoom extends DurableObject {
       return new Response(null, { status: 101, webSocket: client });
     }
     return endpoint(this.market, request, this.allowedOrigins, request.headers.get('CF-Connecting-IP') || 'unknown',
-      (action, { now, stock, goods, revision, round, slot, nextSlot, next, open, closes, speech, testing, rare, dailyRareSold, room, marketOnline, marketCapacity, rarePickup, player, queueAdvanced }) => {
+      (action, { now, stock, goods, revision, round, slot, nextSlot, next, open, closes, speech, testing, rare, room, marketOnline, marketCapacity, rarePickup, player, queueAdvanced }) => {
         const key = [round, open, revision, marketOnline].join(':');
         const changed = key !== this.lastMarketStatus;
         this.lastMarketStatus = key;
@@ -37,7 +37,7 @@ export class MarketRoom extends DurableObject {
         const checkCrowd = changed || pickup || (room === 'market' &&
           (action === 'chat' || action === 'profile' || now - (this.lastCrowdAt ?? 0) >= 2000));
         if (!changed && action !== 'chat' && !checkCrowd && !queueAdvanced) return;
-        const status = changed ? JSON.stringify({ type: 'market-status', now, stock, goods, revision, round, slot, nextSlot, next, open, closes, testing, rare, dailyRareSold, marketOnline, marketCapacity }) : null;
+        const status = changed ? JSON.stringify({ type: 'market-status', now, stock, goods, revision, round, slot, nextSlot, next, open, closes, testing, rare, marketOnline, marketCapacity }) : null;
         const chat = action === 'chat' ? JSON.stringify({ type: 'chat', speech }) : null;
         let crowd;
         if (checkCrowd) {

@@ -78,7 +78,7 @@ function demo(action='sync', extra={}) {
   data ??= { player:blank(), basket:[], round:-1, stock:{} };
   const now=Date.now();
   const session=marketSession(now);
-  const rare=session.open?marketRare(now,session)?.id??null:null;
+  const rare=session.open?marketRare(session).id:null;
   const initial=roundStock(session.slot);
   const day=seoulDay(now);
   if(data.player.name==='새내기 상인')data.player.name='새내기 손님';
@@ -92,7 +92,8 @@ function demo(action='sync', extra={}) {
   const p=data.player;
   const stock={...initial};
   if(data.round===session.round)for(const item of roundCloth(session.slot))stock[item.id]=data.stock[item.id]??item.count;
-  if(rare)stock[rare]=data.rareSoldDay===day?0:1;
+  const legacyRareSold=session.slot===MARKET_HOURS.length&&data.rareSoldDay===day;
+  if(rare)stock[rare]=data.rareSoldRound===session.round||legacyRareSold?0:1;
   let event, rarePickup;
   if(action==='profile'){
     const name=niceName(extra.name);
@@ -116,7 +117,7 @@ function demo(action='sync', extra={}) {
     if(p.cash<item.price) throw Error('지역화폐가 부족해요. 다음 장에 입장하면 '+format(ROUND_CURRENCY)+'원을 받아요.');
     stock[item.id]--;
     if(item.rare){
-      data.rareSoldDay=day;
+      data.rareSoldRound=session.round;
       rarePickup={id:p.id,item:item.id,sentAt:now,expiresAt:now+RARE_PICKUP_MS};
     }
     else data.stock[item.id]=stock[item.id];
@@ -128,10 +129,10 @@ function demo(action='sync', extra={}) {
   }
   p.rank=p.collected?1:null;
   write(demoKey,JSON.stringify(data));
-  const used=session.open?roundCloth(session.slot).reduce((n,item)=>n+item.count-stock[item.id],0)+Number(Boolean(rare)&&data.rareSoldDay===day):500;
+  const used=session.open?roundCloth(session.slot).reduce((n,item)=>n+item.count-stock[item.id],0)+1-stock[rare]:500;
   const phase=Math.max(session.open?session.round:session.closes/60_000,seoulDayStart(now)/60_000);
   return {...data,...session,rare,stock:session.open?stock:closedStock,
-    online:1,peers:[],ranking:p.collected?[p]:[],now,dailyRareSold:data.rareSoldDay===day,revision:phase*1000+used,event,currencyGrant,rarePickup};
+    online:1,peers:[],ranking:p.collected?[p]:[],now,revision:phase*1000+used,event,currencyGrant,rarePickup};
 }
 async function request(action, extra={}, room=activeRoom()){
   const pos=room==='market'?world?.position()??SPAWN:SPAWN;
@@ -530,7 +531,7 @@ function renderShop(){
   previewButton.textContent=soldoutPreview?'미리보기 닫기':'✦ 완판 효과 보기';
   $('shop-summary').hidden=status!=='selling';
   $('shop-filters').hidden=status!=='selling';
-  $('daily-rare').hidden=status!=='selling'||!inventory?.rare;
+  $('round-rare').hidden=status!=='selling'||!inventory?.rare;
   $('sale-label').textContent=inventory?.testing?'테스트 장 · 선착순 판매':(inventory?.slot??1)+'차 · 선착순 판매';
   if(!model||!inventory){body.innerHTML='<p class="empty">상품을 불러오고 있어요.</p>';return;}
   const signature=[inventory.revision,model.player.cash,mode,acting,filter,soldoutPreview].join(':');
@@ -548,8 +549,8 @@ function renderShop(){
   for(const button of $('shop-filters').querySelectorAll('button'))button.setAttribute('aria-pressed',String(button.dataset.filter===filter));
   const counts=inventory.stock;
   const rare=SCARVES.find(item=>item.id===inventory.rare);
-  const dailyLabel=$('daily-rare');
-  if(rare)dailyLabel.textContent='✦ 오늘의 레어 · '+rare.name+' · '+(counts[rare.id]?'하루 1장':'오늘 품절');
+  const rareLabel=$('round-rare');
+  if(rare)rareLabel.textContent='✦ 이번 장 레어 · '+rare.name+' · '+(counts[rare.id]?'한정 1장':'품절');
   const regular=roundCloth(inventory.slot);
   const items=(rare?[rare,...regular]:regular).filter(item=>filter==='all'||item.group===filter);
   const total=MARKET_ITEMS.reduce((sum,item)=>sum+(counts[item.id]??0),0);

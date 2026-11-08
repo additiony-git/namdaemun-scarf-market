@@ -1,4 +1,4 @@
-import { CHAT_FEED_MS, CHAT_LIMIT, CHAT_MS, EMPTY_STOCK, JUNK, LOBBY_CHAT_LIMIT, LOBBY_CHAT_MS, MAP, MARKET_CAPACITY, MARKET_ITEMS, RARE_PICKUP_MS, ROUND_CURRENCY, SPAWN, chatText, fit, marketRare, marketSession, niceName, normalizeLook, roundCloth, roundStock, seoulDay, seoulDayStart } from '../game/catalog.mjs';
+import { CHAT_FEED_MS, CHAT_LIMIT, CHAT_MS, EMPTY_STOCK, JUNK, LOBBY_CHAT_LIMIT, LOBBY_CHAT_MS, MAP, MARKET_CAPACITY, MARKET_HOURS, MARKET_ITEMS, RARE_PICKUP_MS, ROUND_CURRENCY, SPAWN, chatText, fit, marketRare, marketSession, niceName, normalizeLook, roundCloth, roundStock, seoulDay, seoulDayStart } from '../game/catalog.mjs';
 
 const defaultName = '새내기 손님';
 const presenceMs = 30_000;
@@ -102,21 +102,25 @@ export class Market {
     const expiryMinute = expired ? Math.floor(this.testWindow.until / minute) : 0;
     const shortWindow = expired && Math.floor(this.testWindow.from / minute) === expiryMinute;
     const revision = expired ? Math.max(scheduledRevision, expiryMinute * 1000 + (shortWindow ? 800 : 0)) : scheduledRevision;
-    const rare = open ? marketRare(now,session)?.id ?? null : null;
-    const dailyRareSold = Boolean(this.get('SELECT day FROM daily_rare_sales WHERE day = ?', seoulDay(now)));
-    if (!open) return { ...session, stock: EMPTY_STOCK, goods: {}, rare, dailyRareSold, revision };
+    if (!open) return { ...session, stock: EMPTY_STOCK, goods: {}, rare: null, revision };
+    const rare = marketRare(session).id;
     const stock = roundStock(session.slot);
+    stock[rare] = 1;
     let used = 0;
     for (const { item, qty } of this.query('SELECT item, qty FROM cloth_sales WHERE round = ?', round)) {
       const remaining=Math.max(0,(stock[item]??0)-qty);
       used+=(stock[item]??0)-remaining;
       if(Object.hasOwn(stock,item))stock[item]=remaining;
     }
-    if (rare) {
-      if (dailyRareSold) used++;
-      else stock[rare] = 1;
+    // Before per-round sales, the night and test markets recorded rare sales by day.
+    const started = round * minute;
+    if (stock[rare] && (session.testing || session.slot === MARKET_HOURS.length) &&
+        this.get('SELECT 1 FROM daily_rare_sales WHERE day = ? AND EXISTS (SELECT 1 FROM basket WHERE item = ? AND updated >= ? AND updated < ?)',
+          seoulDay(started), rare, started, session.closes)) {
+      stock[rare] = 0;
+      used++;
     }
-    return { ...session, stock, goods: {}, rare, dailyRareSold, revision: revision + used };
+    return { ...session, stock, goods: {}, rare, revision: revision + used };
   }
   action(body, now = Date.now(), ip = 'local') {
     const { action, token, pos } = body ?? {};
@@ -219,13 +223,9 @@ export class Market {
         if (player.cash < item.price) {
           return problem(`지역화폐가 부족해요. 다음 장에 입장하면 ${ROUND_CURRENCY.toLocaleString('ko-KR')}원을 받아요.`, 409);
         }
-        if (item.rare) {
-          this.query('INSERT INTO daily_rare_sales VALUES (?)', seoulDay(now));
-          pickup = { item: item.id, sentAt: now, expiresAt: now + RARE_PICKUP_MS };
-        } else {
-          this.query('INSERT INTO cloth_sales VALUES (?, ?, 1) ON CONFLICT(round,item) DO UPDATE SET qty = qty + 1', round, item.id);
-          this.query('DELETE FROM cloth_sales WHERE round < ?', round - 3 * 24 * 60);
-        }
+        if (item.rare) pickup = { item: item.id, sentAt: now, expiresAt: now + RARE_PICKUP_MS };
+        this.query('INSERT INTO cloth_sales VALUES (?, ?, 1) ON CONFLICT(round,item) DO UPDATE SET qty = qty + 1', round, item.id);
+        this.query('DELETE FROM cloth_sales WHERE round < ?', round - 3 * 24 * 60);
         this.query('UPDATE players SET cash = cash - ?, traded = ? WHERE id = ?', item.price, now, player.id);
         this.query('INSERT INTO basket VALUES (?, ?, 1, ?) ON CONFLICT(player,item) DO UPDATE SET qty = qty + 1, updated = excluded.updated', player.id, item.id, now);
         player.cash -= item.price;
