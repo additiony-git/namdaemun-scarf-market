@@ -312,6 +312,37 @@ test('preparation pauses junk sales while preserving earlier baskets and rank ti
   assert.equal(restarted.online,1);
 });
 
+test('the ranking restores older purchases and counts new purchases once', t=>{
+  const data=setup();t.after(data.close);
+  let market=data.create();
+  const first=market.action({action:'join'},start);
+  const second=market.action({action:'join'},start);
+  const addBasket=data.db.prepare('INSERT INTO basket VALUES (?, ?, ?, ?)');
+  addBasket.run(first.player.id,'sock',1,start-2000);
+  addBasket.run(first.player.id,'hanky',2,start-1000);
+  data.db.prepare('UPDATE players SET collected = 3, reached = ? WHERE id = ?').run(start-1500,second.player.id);
+  data.db.exec('DROP TABLE market_migrations');
+
+  market=data.create();
+  const sync=(guest,now)=>market.action({action:'sync',token:guest.token},now);
+  const restored=sync(first,start);
+  assert.equal(restored.player.collected,3);
+  assert.equal(restored.player.rank,2);
+  assert.deepEqual(restored.ranking.map(row=>row.id),[second.player.id,first.player.id]);
+  sync(second,start);
+
+  for(const guest of [first,second]){
+    const bought=market.action({action:'buy',token:guest.token,item:'scarf'},start+500);
+    assert.equal(bought.player.collected,4);
+  }
+  market=data.create();
+  for(const guest of [first,second]){
+    const state=sync(guest,start+600);
+    assert.equal(state.player.collected,4);
+    assert.equal(state.player.rank,state.ranking.findIndex(row=>row.id===guest.player.id)+1);
+  }
+});
+
 test('HTTP requires the configured origin and a valid token for trades', async t=>{
   const data=setup();t.after(data.close);
   const market=data.create(), origin='https://example.github.io';
@@ -347,7 +378,8 @@ test('HTTP requires the configured origin and a valid token for trades', async t
   assert.equal(bought.player.cash,ROUND_CURRENCY-700);
   assert.equal(bought.stock.scarf,firstStock.scarf-1);
   assert.equal(bought.basket[0].item,'scarf');
-  assert.equal(bought.player.collected,0);
+  assert.equal(bought.player.collected,1);
+  assert.equal(bought.player.rank,1);
 });
 
 test('chat is authenticated, transient, limited and visible to another guest', t=>{

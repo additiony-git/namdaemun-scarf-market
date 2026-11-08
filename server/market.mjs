@@ -32,6 +32,14 @@ export class Market {
     query('CREATE TABLE IF NOT EXISTS daily_rare_sales (day INTEGER PRIMARY KEY)');
     query('CREATE TABLE IF NOT EXISTS market_queue (sequence INTEGER PRIMARY KEY, player TEXT UNIQUE NOT NULL, round INTEGER NOT NULL, seen INTEGER NOT NULL)');
     query('CREATE INDEX IF NOT EXISTS queue_seen ON market_queue (seen)');
+    query('CREATE TABLE IF NOT EXISTS market_migrations (name TEXT PRIMARY KEY)');
+    transaction(() => {
+      if (!query("INSERT OR IGNORE INTO market_migrations VALUES ('basket_ranking') RETURNING name").length) return;
+      // Older purchases saved quantities and purchase times in the basket without updating the ranking.
+      query(`UPDATE players SET collected = totals.quantity, reached = totals.last_purchase
+        FROM (SELECT player, SUM(qty) AS quantity, MAX(updated) AS last_purchase FROM basket GROUP BY player) AS totals
+        WHERE players.id = totals.player AND players.collected < totals.quantity`);
+    });
   }
   get(sql, ...args) { return this.query(sql, ...args)[0]; }
   issueRoundCurrency(player, round) {
@@ -241,9 +249,12 @@ export class Market {
         if (item.rare) pickup = { item: item.id, sentAt: now, expiresAt: now + RARE_PICKUP_MS };
         this.query('INSERT INTO cloth_sales VALUES (?, ?, 1) ON CONFLICT(round,item) DO UPDATE SET qty = qty + 1', round, item.id);
         this.query('DELETE FROM cloth_sales WHERE round < ?', round - 3 * 24 * 60);
-        this.query('UPDATE players SET cash = cash - ?, traded = ? WHERE id = ?', item.price, now, player.id);
+        this.query('UPDATE players SET cash = cash - ?, traded = ?, collected = collected + 1, reached = ? WHERE id = ?',
+          item.price, now, now, player.id);
         this.query('INSERT INTO basket VALUES (?, ?, 1, ?) ON CONFLICT(player,item) DO UPDATE SET qty = qty + 1, updated = excluded.updated', player.id, item.id, now);
         player.cash -= item.price;
+        player.collected++;
+        player.reached = now;
         event = item.name + ' 장바구니에 담았어요!';
       } else if (action === 'chat') {
         const text = chatText(body.text);
@@ -261,7 +272,9 @@ export class Market {
       this.people.set(player.id, { id: player.id, name: player.name, room, entryRound, x, z, seen: now, idle: !open, speech, lastChat, look, watchId, pickup });
       const roomPeople = [...this.people.values()].filter(person => person.room === room);
       const ranking = this.query('SELECT id, name, collected FROM players WHERE collected > 0 ORDER BY collected DESC, reached ASC, id ASC LIMIT 30');
-      const myRank = player.collected ? this.get('SELECT COUNT(*) + 1 AS rank FROM players WHERE collected > ? OR (collected = ? AND reached < ?)', player.collected, player.collected, player.reached).rank : null;
+      const myRank = player.collected ? this.get(
+        'SELECT COUNT(*) + 1 AS rank FROM players WHERE collected > ? OR (collected = ? AND (reached, id) < (?, ?))',
+        player.collected, player.collected, player.reached, player.id).rank : null;
       const outfits = Object.fromEntries(this.query('SELECT character, hat, coat, bag, scarf FROM character_outfits WHERE player = ?', player.id).map(row=>[row.character,normalizeLook(row)]));
       outfits[look.character] = look;
       const queuePosition = room === 'lobby' ? this.get(

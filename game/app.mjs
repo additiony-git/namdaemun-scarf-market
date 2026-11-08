@@ -93,6 +93,7 @@ function demo(action='sync', extra={}) {
     currencyGrant=ROUND_CURRENCY;
   }
   const p=data.player;
+  p.collected=Math.max(p.collected??0,data.basket.reduce((total,item)=>total+item.qty,0));
   const stock={...initial};
   if(data.round===session.round)for(const item of roundCloth(session.slot))stock[item.id]=data.stock[item.id]??item.count;
   const legacyRareSold=isNightMarket(session.round)&&data.rareSoldDay===day;
@@ -125,6 +126,7 @@ function demo(action='sync', extra={}) {
     }
     else data.stock[item.id]=stock[item.id];
     p.cash-=item.price;
+    p.collected++;
     const existing=data.basket.find(i=>i.item===item.id);
     if(existing){existing.qty++;existing.updated=now;}else data.basket.push({item:item.id,qty:1,updated:now});
     data.basket.sort((a,b)=>b.updated-a.updated);
@@ -547,6 +549,7 @@ function open(type, tab='avatar'){
   $('modal-kicker').textContent=label;$('modal-title').textContent=title;
   renderModal();
   if(!dialog.open)dialog.showModal();
+  if(type==='rank'&&endpoint)queue(0);
 }
 function itemPicture(item){
   return item.pattern
@@ -718,7 +721,7 @@ function renderModal(){
   if(!model){body.innerHTML='<p class="empty">장터에 연결하고 있어요.</p>';return;}
   if(modal==='rank'){
     const p=model.player;
-    body.innerHTML='<p class="modal-note">'+(mode==='solo'?'혼자 체험 기록입니다. ':'장터 상위 30명 · ')+'모은 물건이 많을수록, 동점이면 해당 수량에 먼저 도달한 순서로 앞서요.</p>'+
+    body.innerHTML='<p class="modal-note">'+(mode==='solo'?'혼자 체험 기록입니다. ':'장터 상위 30명 · ')+'구매한 물건 1개당 수집 기록이 1개 늘어요. 동점이면 해당 수량에 먼저 도달한 손님이 앞서요.</p>'+
       (model.ranking.length?'<ol class="rank-list">'+rankRows(model.ranking)+'</ol>':'<div class="empty">아직 수집 기록이 없어요. 첫 수집왕에 도전하세요!</div>')+
       (p.rank?'<p class="modal-note" style="margin-top:10px">내 순위: '+p.rank+'위 · '+format(p.collected)+'개</p>':'');
   }
