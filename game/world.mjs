@@ -557,16 +557,16 @@ export function createWorld(canvas, markers, onNearby) {
       bubble.node.style.left=Math.max(margin,Math.min(width-margin,x))+'px';
       bubble.node.style.top=y+'px';
     }
+    const [bubbleX,bubbleY]=project(vendorPosition[0],1.32,vendorPosition[2]);
+    markers.speech.hidden=bubbleX<0||bubbleX>width||bubbleY<95||bubbleY>height-50;
+    const half=markers.speech.offsetWidth/2+10;
+    markers.speech.style.left=Math.max(half,Math.min(width-half,bubbleX))+'px';
+    markers.speech.style.top=bubbleY+'px';
     if(!watchView){
       for(const [key,p] of Object.entries({ scarves:[-1.67,2.94,-1.98], junk:[4.36,2.75,.95] })){
         const [x,y]=project(...p);markers[key].style.left=x+'px';markers[key].style.top=y+'px';
         markers[key].hidden=x<35||x>width-35||y<52||y>height-60;
       }
-      const [bubbleX,bubbleY]=project(vendorPosition[0],1.32,vendorPosition[2]);
-      const half=markers.speech.offsetWidth/2+10;
-      markers.speech.style.left=Math.max(half,Math.min(width-half,bubbleX))+'px';
-      markers.speech.style.top=bubbleY+'px';
-      markers.speech.hidden=bubbleX<0||bubbleX>width||bubbleY<95||bubbleY>height-50;
       for(const p of peers.values()){
         const [x,y]=project(p.x,1.33,p.z);
         p.label.style.left=x+'px';p.label.style.top=y+'px';
@@ -585,6 +585,7 @@ export function createWorld(canvas, markers, onNearby) {
     },
     leaveMarket(){
       dir.clear();
+      markers.speech.hidden=true;
       Object.assign(self,SPAWN,{a:.25});
       near='';
       shopFocused=false;

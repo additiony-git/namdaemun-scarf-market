@@ -58,6 +58,7 @@ let nearby='', shop='', shopSignature='', inventory, feed, retryFeedAt=0, transi
 let soldoutPreview=false, soldoutPreviewTimer;
 let soldoutEffectFrame, soldoutEffectTimer;
 let lastLine=0, filter='all', sendingChat=false;
+let watchVendorSignature='';
 const seenChat=new Set();
 const products=[...MARKET_ITEMS,...JUNK];
 const partLabels={character:'캐릭터',hat:'머리 소품',coat:'옷',bag:'가방',scarf:'목에 두른 스카프'};
@@ -419,9 +420,10 @@ function tick(){
   if(!enteredMarket){
     renderEntrance(session,now);
     const boundary=entranceSchedule?.open?entranceSchedule.closes:entranceSchedule?.next;
-    if(endpoint&&boundary<=now&&transitionRequested!==boundary){
+    if(boundary<=now&&transitionRequested!==boundary){
       transitionRequested=boundary;
-      queue(0);
+      if(endpoint)queue(0);
+      else setModel(demo());
     }
     if(watchingMarket)renderSpectator();
     const log=$('lobby-chat-feed');
@@ -660,7 +662,7 @@ function renderModal(){
   }
   icons(body);
 }
-function renderSpectator(){
+function renderSpectator(rotateVendor=false){
   const now=Date.now()+timeOffset;
   const session=scheduleAt(now);
   const current=watchStatus?.open&&session.open&&watchStatus.round===session.round;
@@ -673,6 +675,12 @@ function renderSpectator(){
   const stock=current?watchStatus.stock:closedStock;
   const total=current?MARKET_ITEMS.reduce((sum,item)=>sum+(stock[item.id]??0),0):0;
   const heading=current?(total?session.slot+'차 장 판매 중':'이번 장 완판'):session.open?'시장 상황 확인 중':'개장 전 · 골목 구경 중';
+  const vendorState=current?marketAvailability(watchStatus):session.open?'loading':'waiting';
+  const vendorSignature=vendorState+':'+session.next;
+  if(rotateVendor||vendorSignature!==watchVendorSignature){
+    watchVendorSignature=vendorSignature;
+    line(vendorState,session.next);
+  }
   setText('watch-heading',heading+(endpoint?' · '+count+'/'+capacity+'명':''));
   setText('watch-time',countdownText((session.open?session.closes:session.next)-now));
   $('watch-enter').disabled=cancelQueue||(entryRequested&&!waitingPosition);
@@ -739,6 +747,7 @@ function openSpectator(message){
     watchCrowdAt=0;
     watchCrowdCount=undefined;
     watchSignature='';
+    watchVendorSignature='';
     $('entrance').hidden=true;
     $('watch-ui').hidden=false;
     $('world').removeAttribute('aria-hidden');
@@ -839,8 +848,7 @@ async function sendChat(room){
     if(revision!==roomRevision)queue(0);
   }
 }
-function line(){
-  const state=displayedAvailability();
+function line(state=displayedAvailability(),next=inventory?.next){
   const bubble=$('vendor-speech');
   const reopen=$('vendor-reopen');
   bubble.dataset.state=state;
@@ -851,13 +859,18 @@ function line(){
   let message;
   if(state==='soldout')message='이건 아닌 거 같아… 벌써 다 팔렸네! 다음 장에 다시 와요!';
   else if(state==='waiting')message='아직 장 준비 중이여. 골목에서 얘기 나누면서 기다려요!';
+  else if(state==='loading')message='매대 상황을 확인하는 중이여.';
   else{
     lastLine=(lastLine+1+Math.floor(Math.random()*(LINES.length-1)))%LINES.length;
     message=LINES[lastLine];
   }
   $('line').textContent='“'+message+'”';
-  if(!reopen.hidden)reopen.textContent='다음 장 · '+openingTime.format(nextSaleAt());
+  if(!reopen.hidden)reopen.textContent='다음 장 · '+openingTime.format(next);
   bubble.setAttribute('aria-label',reopen.hidden?'상인의 다음 멘트 듣기':message+' '+reopen.textContent);
+}
+function nextVendorLine(){
+  if(watchingMarket)renderSpectator(true);
+  else line();
 }
 function chime(){
   if(muted)return;
@@ -1020,7 +1033,7 @@ for(const id of ['profile','lobby-profile'])$(id).onclick=()=>open('profile');
 $('close-modal').onclick=()=>dialog.close();
 dialog.addEventListener('click', e=>{if(e.target===dialog){const r=dialog.getBoundingClientRect();if(e.clientX<r.left||e.clientX>r.right||e.clientY<r.top||e.clientY>r.bottom)dialog.close();}});
 dialog.addEventListener('close',()=>{modal='';});
-$('vendor-speech').onclick=()=>line();
+$('vendor-speech').onclick=nextVendorLine;
 $('soldout-preview').onclick=()=>{
   if(inventory?.testing&&shop==='scarves'&&!acting)setSoldoutPreview(!soldoutPreview);
 };
@@ -1092,6 +1105,7 @@ function showWorldError(){
   updateInteract();
   $('world-error').hidden=false;
   $('world-markers').hidden=true;
+  $('vendor-marker').hidden=true;
   $('stage-hint').hidden=true;
   if(watchingMarket){
     setWatchPanel(true);
@@ -1166,4 +1180,4 @@ showMarketHours();
 tick();
 if(endpoint)queue(0);else setModel(demo());
 setInterval(tick,500);
-setInterval(()=>{if(enteredMarket&&!dialog.open&&!document.hidden)line();},15000);
+setInterval(()=>{if((enteredMarket||watchingMarket)&&!dialog.open&&!document.hidden)nextVendorLine();},15000);

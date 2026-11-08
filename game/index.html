@@ -95,17 +95,19 @@
       </footer>
       <p id="watch-feedback" class="glass watch-feedback" role="status" hidden></p>
     </section>
+    <div id="vendor-marker" class="markers">
+      <button id="vendor-speech" class="speech" type="button" aria-label="상인의 다음 멘트 듣기" hidden>
+        <span class="speech-speaker"><img id="vendor-avatar" src="./vendor.svg" width="22" height="22" alt=""><strong id="vendor-name">스카프 아저씨</strong><span id="vendor-soldout" class="soldout-tag" hidden>완판!</span><i data-icon="shuffle"></i></span>
+        <span id="line"></span>
+        <span id="vendor-reopen" class="speech-reopen" hidden></span>
+      </button>
+    </div>
     <div id="watch-speech" class="watch-speech"></div>
     <div id="rare-pickups" class="rare-pickups" aria-live="polite"></div>
     <div id="market-ui" hidden>
     <div id="world-markers" class="markers">
       <button id="scarf-marker" class="marker" data-trade="scarves"><span>✦</span> 스카프 매대</button>
       <button id="junk-marker" class="marker junk-marker" data-trade="junk"><span>✧</span> 잡화점 · 오픈 준비 중</button>
-      <button id="vendor-speech" class="speech" type="button" aria-label="상인의 다음 멘트 듣기">
-        <span class="speech-speaker"><img id="vendor-avatar" src="./vendor.svg" width="22" height="22" alt=""><strong id="vendor-name">스카프 아저씨</strong><span id="vendor-soldout" class="soldout-tag" hidden>완판!</span><i data-icon="shuffle"></i></span>
-        <span id="line">“스카프는 천천히 골라요. 놓친 건 재고 탓 하고!”</span>
-        <span id="vendor-reopen" class="speech-reopen" hidden></span>
-      </button>
     </div>
     <div id="soldout-scene" class="soldout-scene" aria-hidden="true" hidden>
       <div class="soldout-rays"></div>
