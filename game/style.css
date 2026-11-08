@@ -532,8 +532,10 @@ dialog::backdrop { background: #130e0bc9; backdrop-filter: blur(3px); }
 .rank-pos { width: 17px; text-align: center; font-weight: 900; color: var(--gold); }
 .rank-face { display: grid; place-items: center; width: 24px; height: 24px; flex: none; border-radius: 6px; color: #ffd29a; background: #503b2b; }
 .rank-face i { width: 14px; height: 14px; }
-.rank-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rank-collector { flex: 1; min-width: 0; }
+.rank-name { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .rank-name small { margin-left: 4px; color: var(--gold); }
+.rank-items { display: block; margin-top: 3px; color: var(--muted); font-size: 10px; word-break: keep-all; }
 .rank-num { color: var(--gold); font-weight: 900; white-space: nowrap; }
 .rank-num small { color: var(--muted); font-size: 10px; font-weight: 500; }
 .profile-tabs { display: flex; gap: 6px; margin: 1px 0 13px; }

@@ -1,4 +1,4 @@
-import { CHAT_FEED_MS, CHAT_LIMIT, CHAT_MS, EMPTY_STOCK, JUNK, LOBBY_CHAT_LIMIT, LOBBY_CHAT_MS, MAP, MARKET_CAPACITY, MARKET_EXIT_MS, MARKET_ITEMS, RARE_PICKUP_MS, ROUND_CURRENCY, SPAWN, chatText, fit, isNightMarket, lastMarketClose, marketRare, marketSession, niceName, normalizeLook, roundCloth, roundStock, seoulDay, seoulDayStart } from '../game/catalog.mjs';
+import { CHAT_FEED_MS, CHAT_LIMIT, CHAT_MS, EMPTY_STOCK, JUNK, LOBBY_CHAT_LIMIT, LOBBY_CHAT_MS, MAP, MARKET_CAPACITY, MARKET_EXIT_MS, MARKET_ITEMS, RARE_PICKUP_MS, RARE_SCARVES, ROUND_CURRENCY, SPAWN, chatText, fit, isNightMarket, lastMarketClose, marketRare, marketSession, niceName, normalizeLook, roundCloth, roundStock, seoulDay, seoulDayStart } from '../game/catalog.mjs';
 
 const defaultName = '새내기 손님';
 const presenceMs = 30_000;
@@ -9,6 +9,8 @@ const queueRenewalMs = 220_000;
 const tradeMs = 350;
 const chatCooldown = 1800;
 const minute = 60_000;
+const rareIds = RARE_SCARVES.map(item => item.id);
+const rareParams = rareIds.map(() => '?').join(', ');
 const problem = (error, status = 400) => ({ error, status });
 const newToken = () => Array.from(crypto.getRandomValues(new Uint8Array(24)), n => n.toString(16).padStart(2, '0')).join('');
 export class Market {
@@ -42,6 +44,19 @@ export class Market {
     });
   }
   get(sql, ...args) { return this.query(sql, ...args)[0]; }
+  rareRanking(playerId) {
+    const ranks = this.query(`SELECT id, name, collected, rank, items FROM (
+      SELECT p.id, p.name, SUM(b.qty) AS collected,
+        ROW_NUMBER() OVER (ORDER BY SUM(b.qty) DESC, MAX(b.updated), p.id) AS rank,
+        json_group_array(json_object('item', b.item, 'qty', b.qty)) AS items
+      FROM basket b JOIN players p ON p.id = b.player
+      WHERE b.item IN (${rareParams}) AND b.qty > 0
+      GROUP BY p.id, p.name
+    ) WHERE rank <= 30 OR id = ? ORDER BY rank`, ...rareIds, playerId);
+    const personal = ranks.find(row => row.id === playerId);
+    const rows = ranks.filter(row => row.rank <= 30).map(row => ({ ...row, items: JSON.parse(row.items) }));
+    return { rows, rank: personal?.rank ?? null, count: personal?.collected ?? 0 };
+  }
   issueRoundCurrency(player, round) {
     if (this.get('SELECT 1 FROM round_currency WHERE player = ? AND round = ?', player.id, round)) return;
     const legacy = this.get('SELECT round FROM allowances WHERE player = ?', player.id);
@@ -285,7 +300,8 @@ export class Market {
         marketOnline: this.marketCount(), marketCapacity: MARKET_CAPACITY, queuePosition, queueAdvanced,
         player: { id: player.id, name: player.name, cash: player.cash, sold: player.sold, collected: player.collected, rank: myRank, look, outfits },
         basket: this.query('SELECT item, qty, updated FROM basket WHERE player = ? ORDER BY updated DESC, item', player.id),
-        ranking, online: roomPeople.length,
+        ranking, rareRanking: body.includeRareRanking === true ? this.rareRanking(player.id) : undefined,
+        online: roomPeople.length,
         lobbyMessages: room === 'lobby' ? this.lobbyMessages.slice() : undefined,
         crowd: room === 'lobby' && body.watch === true ? this.marketCrowd(now) : undefined,
         rarePickup: room === 'market' || body.watch === true ? this.rarePickup(now, room === 'lobby') : undefined,

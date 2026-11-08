@@ -1,4 +1,4 @@
-import { AVATAR_OPTIONS, CHAT_FEED_MS, CHAT_LIMIT, CHAT_MS, DEFAULT_LOOK, EMPTY_STOCK, FEATURED_MARKETS, JUNK, LINES, LOBBY_CHAT_LIMIT, LOBBY_CHAT_MS, MARKET_CAPACITY, MARKET_EXIT_MS, MARKET_ITEMS, RARE_PICKUP_MS, ROUND_CURRENCY, SCARVES, SPAWN, WAITING_LINES, avatarOptionsFor, chatText, isNightMarket, lastMarketClose, marketName, marketRare, marketSession, niceName, normalizeLook, roundCloth, roundStock, seoulDay, seoulDayStart } from './catalog.mjs';
+import { AVATAR_OPTIONS, CHAT_FEED_MS, CHAT_LIMIT, CHAT_MS, DEFAULT_LOOK, EMPTY_STOCK, FEATURED_MARKETS, JUNK, LINES, LOBBY_CHAT_LIMIT, LOBBY_CHAT_MS, MARKET_CAPACITY, MARKET_EXIT_MS, MARKET_ITEMS, RARE_PICKUP_MS, RARE_SCARVES, ROUND_CURRENCY, SCARVES, SPAWN, WAITING_LINES, avatarOptionsFor, chatText, isNightMarket, lastMarketClose, marketName, marketRare, marketSession, niceName, normalizeLook, roundCloth, roundStock, seoulDay, seoulDayStart } from './catalog.mjs';
 import { MARKET_API } from './config.mjs';
 import { createWorld, drawAvatarPreview } from './world.mjs';
 
@@ -55,6 +55,7 @@ let watchStatus, watchSignature='', watchRefreshAt=0, watchCrowdAt=0, watchCrowd
 let entranceSchedule;
 let muted=true, audioCtx, toastTimer, acting=false;
 let profileTab='avatar', profileFeedback='';
+let rankTab='all';
 const profileDrafts=new Map();
 let nearby=false, shop=false, shopSignature='', inventory, feed, retryFeedAt=0, transitionRequested=0;
 let soldoutPreview=false, soldoutPreviewTimer;
@@ -71,6 +72,7 @@ const dialog=$('modal');
 const closingNotice=$('market-closing');
 const roundEndedMessage='이번 장이 마감되어 시작 화면으로 돌아왔어요. 다음 장은 선착순으로 다시 입장해 주세요.';
 const activeRoom=()=>enteredMarket?'market':'lobby';
+const wantsRareRanking=()=>dialog.open&&modal==='rank'&&rankTab==='rare';
 const lobbySyncDelay=endpoint.startsWith('https://')?240_000:5_000;
 const marketSyncDelay=6_000;
 const idleMarketSyncDelay=40_000;
@@ -133,12 +135,15 @@ function demo(action='sync', extra={}) {
     event=item.name+' 장바구니에 담았어요!';
   }
   p.rank=p.collected?1:null;
+  const rareItems=data.basket.filter(entry=>RARE_SCARVES.some(item=>item.id===entry.item));
+  const rareCount=rareItems.reduce((sum,item)=>sum+item.qty,0);
+  const rareRanking={rows:rareCount?[{id:p.id,name:p.name,collected:rareCount,items:rareItems}]:[],rank:rareCount?1:null,count:rareCount};
   write(demoKey,JSON.stringify(data));
   const sold=roundCloth(session.slot).reduce((n,item)=>n+item.count-stock[item.id],0)+(rare?1-stock[rare]:0);
   const used=session.open?sold:500;
   const phase=Math.max(session.open?session.round:session.closes/60_000,seoulDayStart(now)/60_000);
   return {...data,...session,rare,stock:session.open?stock:closedStock,
-    online:1,peers:[],ranking:p.collected?[p]:[],now,revision:phase*1000+used,event,currencyGrant,rarePickup};
+    online:1,peers:[],ranking:p.collected?[p]:[],rareRanking,now,revision:phase*1000+used,event,currencyGrant,rarePickup};
 }
 async function request(action, extra={}, room=activeRoom()){
   const pos=room==='market'?world?.position()??SPAWN:SPAWN;
@@ -521,7 +526,15 @@ function tick(){
   $('countdown').title=openingTime.format(deadline)+' (한국 시간)';
 }
 function rankRows(list){
-  return list.map((p,i)=>'<li class="rank-row"><span class="rank-pos">'+(i+1)+'</span><span class="rank-face">'+icon('user')+'</span><span class="rank-name">'+safe(p.name)+(p.id===model.player.id?'<small>나</small>':'')+'</span><span class="rank-num">'+format(p.collected)+'<small> 개</small></span></li>').join('');
+  return list.map((p,i)=>{
+    const items=p.items?.map(entry=>{
+      const item=RARE_SCARVES.find(item=>item.id===entry.item);
+      return item?safe(item.name)+' × '+format(entry.qty):'';
+    }).filter(Boolean).join(' · ');
+    return '<li class="rank-row"><span class="rank-pos">'+(i+1)+'</span><span class="rank-face">'+icon('user')+'</span>'+
+      '<div class="rank-collector"><span class="rank-name">'+safe(p.name)+(p.id===model.player.id?'<small>나</small>':'')+'</span>'+
+      (items?'<small class="rank-items">'+items+'</small>':'')+'</div><span class="rank-num">'+format(p.collected)+'<small> 개</small></span></li>';
+  }).join('');
 }
 function render(){
   if(!model){status();return;}
@@ -542,6 +555,7 @@ function open(type, tab='avatar'){
   profileDrafts.clear();
   modal=type;
   profileTab=tab;
+  rankTab='all';
   profileFeedback='';
   $('modal-body').replaceChildren();
   world?.dir.clear();
@@ -718,14 +732,28 @@ function renderProfile(body){
 function renderModal(){
   const body=$('modal-body');
   if(modal==='profile'){renderProfile(body);return;}
-  if(!model){body.innerHTML='<p class="empty">장터에 연결하고 있어요.</p>';return;}
-  if(modal==='rank'){
-    const p=model.player;
-    body.innerHTML='<p class="modal-note">'+(mode==='solo'?'혼자 체험 기록입니다. ':'장터 상위 30명 · ')+'구매한 물건 1개당 수집 기록이 1개 늘어요. 동점이면 해당 수량에 먼저 도달한 손님이 앞서요.</p>'+
-      (model.ranking.length?'<ol class="rank-list">'+rankRows(model.ranking)+'</ol>':'<div class="empty">아직 수집 기록이 없어요. 첫 수집왕에 도전하세요!</div>')+
-      (p.rank?'<p class="modal-note" style="margin-top:10px">내 순위: '+p.rank+'위 · '+format(p.collected)+'개</p>':'');
+  if(modal!=='rank')return;
+  if(!$('rank-content')){
+    body.innerHTML='<div class="profile-tabs" role="group" aria-label="랭킹 종류">'+
+      '<button type="button" data-rank-tab="all">전체 수집</button>'+
+      '<button type="button" data-rank-tab="rare">레어템</button></div><div id="rank-content"></div>';
   }
-  icons(body);
+  for(const button of body.querySelectorAll('[data-rank-tab]')){
+    button.setAttribute('aria-pressed',String(button.dataset.rankTab===rankTab));
+  }
+  const content=$('rank-content');
+  const rare=rankTab==='rare';
+  const scores=rare?model?.rareRanking:model&&{rows:model.ranking,rank:model.player.rank,count:model.player.collected};
+  if(!scores){
+    content.innerHTML='<p class="empty">'+(mode==='retry'?'장터에 다시 연결하고 있어요.':'랭킹을 불러오고 있어요.')+'</p>';
+    return;
+  }
+  const basis=rare?'보유한 레어템 수량으로 순위를 매겨요.':'구매한 물건 1개당 수집 기록이 1개 늘어요.';
+  const empty=rare?'아직 레어템을 보유한 손님이 없어요.':'아직 수집 기록이 없어요. 첫 수집왕에 도전하세요!';
+  content.innerHTML='<p class="modal-note">'+(mode==='solo'?'혼자 체험 기록입니다. ':'장터 상위 30명 · ')+basis+' 동점이면 해당 수량에 먼저 도달한 손님이 앞서요.</p>'+
+    (scores.rows.length?'<ol class="rank-list">'+rankRows(scores.rows)+'</ol>':'<div class="empty">'+empty+'</div>')+
+    (scores.rank?'<p class="modal-note" style="margin-top:10px">내 순위: '+scores.rank+'위 · '+format(scores.count)+'개</p>':'');
+  icons(content);
 }
 function renderSpectator(rotateVendor=false){
   const now=Date.now()+timeOffset;
@@ -1022,7 +1050,7 @@ async function connect(){
   const requestingEntry=entryRequested;
   const room=requestingEntry?'market':activeRoom(), revision=roomRevision;
   queueAdvancePending=false;
-  const extra={cancelQueue};
+  const extra={cancelQueue,includeRareRanking:wantsRareRanking()};
   if(requestingEntry&&!watchingMarket)extra.watch=true;
   busy=true;
   let retryDelay;
@@ -1060,7 +1088,7 @@ async function connect(){
     if(revision!==roomRevision)return;
     misses++;
     mode='retry';status();renderShop();
-    if(dialog.open&&modal==='profile')renderModal();
+    if(dialog.open)renderModal();
     retryDelay=room==='lobby'&&!watchingMarket&&!cancelQueue&&endpoint.startsWith('https://')
       ?Math.min(lobbySyncDelay,30_000*misses):Math.min(15_000,3000*misses);
     if(requestingEntry&&!waitingPosition){
@@ -1075,6 +1103,7 @@ async function connect(){
     if(enteredMarket)next=scheduleAt(Date.now()+timeOffset).open?marketSyncDelay:idleMarketSyncDelay;
     else if((entryRequested||watchingMarket)&&feed?.readyState!==WebSocket.OPEN)next=watchSyncDelay;
     if(waitingPosition&&queueAdvancePending&&!retryDelay)next=0;
+    if(!extra.includeRareRanking&&wantsRareRanking()&&!retryDelay)next=0;
     queue(revision===roomRevision?(retryDelay??next):0);
   }
 }
@@ -1119,6 +1148,7 @@ document.addEventListener('click', e=>{
   const item=e.target.closest('[data-action][data-item]');
   const category=e.target.closest('[data-filter]');
   const tab=e.target.closest('[data-profile-tab]');
+  const rankingTab=e.target.closest('[data-rank-tab]');
   if(trade){
     if(nearby||!$('world-error').hidden)openShop();
     else toast('스카프 아저씨 앞으로 다가가 보세요.');
@@ -1132,6 +1162,11 @@ document.addEventListener('click', e=>{
   if(tab&&profileTab!==tab.dataset.profileTab){
     profileTab=tab.dataset.profileTab;
     renderModal();
+  }
+  if(rankingTab&&rankTab!==rankingTab.dataset.rankTab){
+    rankTab=rankingTab.dataset.rankTab;
+    renderModal();
+    if(wantsRareRanking())queue(0);
   }
   if(e.target.closest('#rotate-avatar')){
     const canvas=$('avatar-preview');

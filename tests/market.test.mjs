@@ -343,6 +343,30 @@ test('the ranking restores older purchases and counts new purchases once', t=>{
   }
 });
 
+test('the rare ranking counts existing and newly acquired rare copies separately', t=>{
+  const data=setup();t.after(data.close);
+  const market=data.create();
+  const first=market.action({action:'join'},start);
+  const second=market.action({action:'join'},start);
+  const regular=market.action({action:'join'},start);
+  const rare=marketRare(marketSession(start));
+  const addBasket=data.db.prepare('INSERT INTO basket VALUES (?, ?, ?, ?)');
+  addBasket.run(first.player.id,rare.id,2,start-1000);
+  addBasket.run(second.player.id,rare.id,1,start-500);
+  addBasket.run(regular.player.id,'scarf',10,start-200);
+  const action=(guest,action,now,extra={})=>market.action({action,token:guest.token,includeRareRanking:true,...extra},now);
+
+  const before=action(regular,'sync',start).rareRanking;
+  assert.deepEqual(before.rows.map(row=>[row.id,row.collected]),[[first.player.id,2],[second.player.id,1]]);
+  assert.equal(before.count,0);
+  assert.equal(before.rank,null);
+  const after=action(second,'buy',start+500,{item:rare.id}).rareRanking;
+  assert.equal(after.count,2);
+  assert.equal(after.rank,2);
+  assert.deepEqual(after.rows[1].items,[{item:rare.id,qty:2}]);
+  assert.equal(market.action({action:'sync',token:second.token},start+600).rareRanking,undefined);
+});
+
 test('HTTP requires the configured origin and a valid token for trades', async t=>{
   const data=setup();t.after(data.close);
   const market=data.create(), origin='https://example.github.io';
