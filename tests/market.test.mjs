@@ -2,10 +2,11 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { DatabaseSync } from 'node:sqlite';
 import { Market, endpoint } from '../server/market.mjs';
-import { CHAT_FEED_MS, CHAT_MS, DEFAULT_LOOK, MARKET_DURATION, RARE_SCARVES, STOCK, START_MONEY, dailyRare, marketSession } from '../game/catalog.mjs';
+import { CHAT_FEED_MS, CHAT_MS, DEFAULT_LOOK, MARKET_DURATION, MARKET_INTERVAL, QUEUE_LEAD, RARE_SCARVES, START_MONEY, dailyRare, marketQueue, marketSession, roundCloth, roundStock } from '../game/catalog.mjs';
 
 const midnight=Date.parse('2026-11-08T00:00:00+09:00');
 const start=marketSession(midnight).next;
+const firstStock=roundStock(1);
 
 function setup() {
   const db=new DatabaseSync(':memory:');
@@ -22,19 +23,21 @@ function setup() {
   return {create, db, close:()=>db.close()};
 }
 
-test('the Seoul calendar opens exactly three staggered 45 minute markets per day', ()=>{
-  const hours=[ [9,12], [13,17], [18,22] ];
+test('the Seoul calendar opens three 45-minute markets an hour apart', ()=>{
   const days=[];
   for(let day=0;day<7;day++){
     const dayStart=midnight+day*86_400_000;
     let at=dayStart;
     const starts=[];
-    for(const [from,to] of hours){
+    for(let slot=1;slot<=3;slot++){
       const opening=marketSession(at).next;
       const hour=(opening-dayStart)/3_600_000;
-      assert.ok(hour>=from&&hour<to);
+      if(slot===1)assert.ok(hour>=9&&hour<12);
+      else assert.equal(opening-dayStart,starts.at(-1)+MARKET_INTERVAL);
+      assert.equal(marketSession(opening-1).nextSlot,slot);
       assert.equal(marketSession(opening-1).open,false);
       assert.equal(marketSession(opening).open,true);
+      assert.equal(marketSession(opening).slot,slot);
       assert.equal(marketSession(opening).closes,opening+MARKET_DURATION);
       assert.equal(marketSession(opening+MARKET_DURATION-1).open,true);
       at=opening+MARKET_DURATION;
@@ -45,6 +48,42 @@ test('the Seoul calendar opens exactly three staggered 45 minute markets per day
     days.push(starts);
   }
   assert.ok(new Set(days.map(JSON.stringify)).size>1);
+});
+
+test('the five-minute departure warning is followed by ten minutes of queuing', ()=>{
+  const closing=start+MARKET_DURATION, next=start+MARKET_INTERVAL, queueAt=next-QUEUE_LEAD;
+  assert.equal(marketQueue(marketSession(closing-1),closing-1).warning,false);
+  assert.deepEqual(marketQueue(marketSession(closing),closing),{starts:queueAt,active:false,warning:true});
+  assert.equal(marketQueue(marketSession(queueAt-1),queueAt-1).active,false);
+  assert.deepEqual(marketQueue(marketSession(queueAt),queueAt),{starts:queueAt,active:true,warning:false});
+  assert.equal(marketQueue(marketSession(next-1),next-1).active,true);
+  assert.equal(marketQueue(marketSession(next),next).active,false);
+  const tomorrow=marketSession(start+2*MARKET_INTERVAL).next;
+  assert.equal(marketQueue(marketSession(tomorrow-QUEUE_LEAD),tomorrow-QUEUE_LEAD).active,true);
+});
+
+test('each round has distinct goods and rejects purchases from the other rounds', t=>{
+  const data=setup();t.after(data.close);
+  const market=data.create();
+  const guest=market.action({action:'join'},start);
+  const allIds=new Set();
+  for(let slot=1;slot<=3;slot++){
+    const at=start+(slot-1)*MARKET_INTERVAL;
+    const items=roundCloth(slot);
+    assert.equal(items.filter(i=>i.group==='scarf').length,6);
+    assert.equal(items.filter(i=>i.group==='hanky').length,4);
+    for(const item of items){assert.ok(!allIds.has(item.id));allIds.add(item.id);}
+    const state=market.inventory(at);
+    const rare=slot===3?{[dailyRare(at).id]:1}:{};
+    assert.deepEqual(state.stock,{...roundStock(slot),...rare});
+    const otherItem=roundCloth(slot%3+1)[0];
+    const refused=market.action({action:'buy',item:otherItem.id,token:guest.token},at+100);
+    assert.equal(refused.status,409);
+    assert.match(refused.error,/이번 장에서 판매하지/);
+    const bought=market.action({action:'buy',item:items[0].id,token:guest.token},at+400);
+    assert.equal(bought.stock[items[0].id],items[0].count-1);
+    assert.equal(bought.basket.length,slot);
+  }
 });
 
 test('two shoppers share one limited stock; only the first gets the last item, then the next round refills', async t=>{
@@ -77,10 +116,10 @@ test('two shoppers share one limited stock; only the first gets the last item, t
   assert.equal(closed.stock.scarf,0);
   const next=closed.next;
   const refill=market.action({action:'sync',token:b},next);
-  assert.deepEqual(refill.stock,{...STOCK,[dailyRare(next).id]:1});
+  assert.deepEqual(refill.stock,roundStock(2));
   assert.equal(refill.player.cash,START_MONEY);
-  market.action({action:'buy',item:'hanky',token:b},next+400);
-  assert.equal(market.action({action:'sync',token:b},next+800).player.cash,START_MONEY-450);
+  market.action({action:'buy',item:'ink-edge',token:b},next+400);
+  assert.equal(market.action({action:'sync',token:b},next+800).player.cash,START_MONEY-430);
 });
 
 test('preparation pauses junk sales while preserving earlier baskets and rank ties', t=>{
@@ -104,6 +143,15 @@ test('preparation pauses junk sales while preserving earlier baskets and rank ti
 test('HTTP requires the configured origin and a valid token for trades', async t=>{
   const data=setup();t.after(data.close);
   const market=data.create(), origin='https://example.github.io';
+  const get=source=>new Request('https://market.example/api/market',{headers:{Origin:source}});
+  assert.equal((await endpoint(market,get('https://other.example'),origin)).status,403);
+  const calendar=await endpoint(market,get(origin),origin);
+  assert.equal(calendar.status,200);
+  assert.equal(calendar.headers.get('Access-Control-Allow-Origin'),origin);
+  const schedule=await calendar.json();
+  assert.equal(schedule.next,marketSession(schedule.now).next);
+  assert.equal(schedule.player,undefined);
+  assert.equal(schedule.token,undefined);
   const req=(body,source=origin)=>new Request('https://market.example/api/market',{method:'POST',headers:{Origin:source},body:JSON.stringify(body)});
   const blocked=await endpoint(market,req({action:'join'},'https://other.example'),origin);
   assert.equal(blocked.status,403);
@@ -114,9 +162,9 @@ test('HTTP requires the configured origin and a valid token for trades', async t
   const p=await join.json();
   const sold=await endpoint(market,req({action:'sell',item:'scarf',token:p.token}),origin);
   assert.equal(sold.status,400);
-  const bought=market.action({action:'buy',item:'scarf',token:p.token,price:0},marketSession(Date.now()).next);
+  const bought=market.action({action:'buy',item:'scarf',token:p.token,price:0},start);
   assert.equal(bought.player.cash,START_MONEY-700);
-  assert.equal(bought.stock.scarf,STOCK.scarf-1);
+  assert.equal(bought.stock.scarf,firstStock.scarf-1);
   assert.equal(bought.basket[0].item,'scarf');
   assert.equal(bought.player.collected,0);
 });
@@ -202,14 +250,14 @@ test('the test window accepts purchases and returns to the regular schedule at e
   assert.equal(opened.closes,until);
   assert.ok(opened.revision>guest.revision);
   const bought=market.action({action:'buy',token:guest.token,item:'scarf'},from+1);
-  assert.equal(bought.stock.scarf,STOCK.scarf-1);
+  assert.equal(bought.stock.scarf,firstStock.scarf-1);
   const closed=market.action({action:'sync',token:guest.token},until);
   assert.equal(closed.open,false);
   assert.equal(closed.next,start);
   assert.ok(closed.revision>bought.revision);
   assert.equal(closed.basket[0].item,'scarf');
   const regular=market.action({action:'sync',token:guest.token},start);
-  assert.equal(regular.stock.scarf,STOCK.scarf);
+  assert.equal(regular.stock.scarf,firstStock.scarf);
   assert.ok(regular.revision>closed.revision);
 });
 
@@ -227,24 +275,28 @@ test('a regular market can close after a test ends during its opening', t=>{
   assert.equal(closed.open,false);
 });
 
-test('exactly one rare scarf can be bought across all sessions on the same Seoul date', t=>{
+test('the third round has the daily rare scarf and a same-day test cannot refill it', t=>{
   const data=setup();t.after(data.close);
-  const market=data.create();
+  const third=start+2*MARKET_INTERVAL;
+  const from=third+MARKET_DURATION+60_000;
+  const market=data.create({from,until:from+120_000});
   const first=market.action({action:'join'},start);
   const second=market.action({action:'join'},start);
   const rare=dailyRare(start);
   const count=state=>RARE_SCARVES.reduce((sum,item)=>sum+state.stock[item.id],0);
-  assert.equal(count(first),1);
-  const purchased=market.action({action:'buy',token:first.token,item:rare.id},start+100);
+  assert.equal(count(first),0);
+  assert.equal(count(market.inventory(start+MARKET_INTERVAL)),0);
+  assert.equal(count(market.inventory(third)),1);
+  const purchased=market.action({action:'buy',token:first.token,item:rare.id},third+100);
   assert.equal(purchased.player.cash,START_MONEY-rare.price);
   assert.equal(purchased.basket[0].item,rare.id);
   assert.equal(count(purchased),0);
-  assert.equal(market.action({action:'buy',token:second.token,item:rare.id},start+100).status,409);
-  const later=market.action({action:'sync',token:second.token},first.next);
+  assert.equal(market.action({action:'buy',token:second.token,item:rare.id},third+100).status,409);
+  const later=market.action({action:'sync',token:second.token},from);
   assert.equal(count(later),0);
-  assert.equal(later.stock.scarf,STOCK.scarf);
+  assert.equal(later.stock.scarf,firstStock.scarf);
   const nextDay=marketSession(midnight+86_400_000).next;
-  const tomorrow=market.action({action:'sync',token:second.token},nextDay);
+  const tomorrow=market.action({action:'sync',token:second.token},nextDay+2*MARKET_INTERVAL);
   assert.equal(count(tomorrow),1);
   assert.notEqual(tomorrow.rare,rare.id);
 });

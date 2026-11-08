@@ -1,11 +1,10 @@
-import { CHAT_FEED_MS, CHAT_LIMIT, CHAT_MS, JUNK, MAP, MARKET_ITEMS, SPAWN, START_MONEY, STOCK, chatText, dailyRare, fit, marketSession, niceName, normalizeLook, seoulDay, seoulDayStart } from '../game/catalog.mjs';
+import { CHAT_FEED_MS, CHAT_LIMIT, CHAT_MS, EMPTY_STOCK, JUNK, MAP, MARKET_ITEMS, SPAWN, START_MONEY, chatText, fit, marketRare, marketSession, niceName, normalizeLook, roundCloth, roundStock, seoulDay, seoulDayStart } from '../game/catalog.mjs';
 
 const defaultName = '새내기 손님';
 const presenceMs = 30_000;
 const tradeMs = 350;
 const chatCooldown = 1800;
 const minute = 60_000;
-const closedStock = Object.fromEntries(MARKET_ITEMS.map(item => [item.id, 0]));
 const problem = (error, status = 400) => ({ error, status });
 const newToken = () => Array.from(crypto.getRandomValues(new Uint8Array(24)), n => n.toString(16).padStart(2, '0')).join('');
 export class Market {
@@ -34,7 +33,9 @@ export class Market {
     const regular = marketSession(now);
     const window = this.testWindow;
     if (window && now >= window.from && now < window.until) {
-      return { round: Math.floor(window.from / minute), open: true, closes: window.until, next: marketSession(window.until).next, testing: true };
+      const resume=marketSession(window.until);
+      return { round: Math.floor(window.from / minute), slot: 1, open: true, closes: window.until,
+        next: resume.open?window.until:resume.next, nextSlot: resume.open?resume.slot:resume.nextSlot, testing: true };
     }
     return regular;
   }
@@ -47,16 +48,19 @@ export class Market {
     const expiryMinute = expired ? Math.floor(this.testWindow.until / minute) : 0;
     const shortWindow = expired && Math.floor(this.testWindow.from / minute) === expiryMinute;
     const revision = expired ? Math.max(scheduledRevision, expiryMinute * 1000 + (shortWindow ? 800 : 0)) : scheduledRevision;
-    const rare = dailyRare(now).id;
-    if (!open) return { ...session, stock: closedStock, goods: {}, rare, revision };
-    const stock = { ...STOCK };
+    const rare = open ? marketRare(now,session)?.id ?? null : null;
+    if (!open) return { ...session, stock: EMPTY_STOCK, goods: {}, rare, revision };
+    const stock = roundStock(session.slot);
     let used = 0;
     for (const { item, qty } of this.query('SELECT item, qty FROM cloth_sales WHERE round = ?', round)) {
-      stock[item] -= qty;
-      used += qty;
+      const remaining=Math.max(0,(stock[item]??0)-qty);
+      used+=(stock[item]??0)-remaining;
+      if(Object.hasOwn(stock,item))stock[item]=remaining;
     }
-    if (this.get('SELECT day FROM daily_rare_sales WHERE day = ?', seoulDay(now))) used++;
-    else stock[rare] = 1;
+    if (rare) {
+      if (this.get('SELECT day FROM daily_rare_sales WHERE day = ?', seoulDay(now))) used++;
+      else stock[rare] = 1;
+    }
     return { ...session, stock, goods: {}, rare, revision: revision + used };
   }
   action(body, now = Date.now(), ip = 'local') {
@@ -127,6 +131,9 @@ export class Market {
         if (!open) return problem('장이 닫혔어요. 다음 개장 시간을 확인해 주세요.', 409);
         if (player.traded && now - player.traded < tradeMs) return problem('잠깐만요, 한 개씩 계산할게요.', 429);
         const inventory = this.inventory(now, session);
+        if (inventory.rare!==item.id && !roundCloth(session.slot).some(entry=>entry.id===item.id)) {
+          return problem('이 상품은 이번 장에서 판매하지 않아요.', 409);
+        }
         if (!inventory.stock[item.id]) {
           return problem('다른 손님이 먼저 가져갔어요. 다음 장을 기다려 주세요.', 409);
         }
@@ -173,7 +180,11 @@ export function endpoint(market, request, allowedOrigin = '', ip = 'local', publ
   if (origin && permitted) headers['Access-Control-Allow-Origin'] = origin;
   const send = (body, status = 200) => new Response(JSON.stringify(body), { status, headers });
   if (!permitted) return send({ error: '이 사이트에서는 장터에 연결할 수 없어요.' }, 403);
-  if (request.method !== 'POST') return send({ error: 'POST 요청만 받습니다.' }, 405);
+  if (request.method === 'GET') {
+    const now=Date.now();
+    return send({now,...market.session(now)});
+  }
+  if (request.method !== 'POST') return send({ error: 'GET과 POST 요청만 받습니다.' }, 405);
   return (async () => {
     try {
       const decoder = new TextDecoder('utf-8', { fatal: true });

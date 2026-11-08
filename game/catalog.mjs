@@ -5,7 +5,7 @@ export const CHAT_LIMIT = 80;
 export const SPAWN = { x: -0.9, z: 3.9 };
 export const MAP = { minX: -5.65, maxX: 5.55, minZ: -1.85, maxZ: 7.3 };
 export const STALLS = { scarves: { x: -1.7, z: -0.65 }, junk: { x: 3.6, z: 1.9 } };
-export const CLOTH = [
+const firstCloth = [
   { id: 'scarf', group: 'scarf', name: '꽃무늬 스카프', price: 700, count: 6, color: '#bd5a59', ink: '#ffdec1', pattern: 'flower', detail: '살구색 꽃잎이 흩어진 장밋빛 스카프.' },
   { id: 'indigo-stripe', group: 'scarf', name: '쪽빛 줄무늬 스카프', price: 750, count: 6, color: '#426d91', ink: '#ddedeb', pattern: 'stripe', detail: '쪽빛 바탕에 흰 줄을 또렷하게 넣었어요.' },
   { id: 'amber-paisley', group: 'scarf', name: '호박빛 페이즐리 스카프', price: 900, count: 6, color: '#c48d46', ink: '#783c37', pattern: 'paisley', detail: '호박색 바탕에 굽은 잎사귀 무늬.' },
@@ -22,8 +22,46 @@ export const RARE_SCARVES = [
   { id: 'golden-knot', group: 'scarf', name: '금빛 매듭 스카프', price: 1200, count: 1, rare: true, color: '#8b3b52', ink: '#f3ca70', pattern: 'paisley', detail: '자줏빛 천 위로 금빛 매듭이 이어져요.' },
   { id: 'pearl-stars', group: 'scarf', name: '별빛 자개 스카프', price: 1200, count: 1, rare: true, color: '#286f6d', ink: '#d6f0dd', pattern: 'wave', detail: '물결에 비친 자개빛이 각도마다 달라 보여요.' },
 ];
-export const MARKET_ITEMS = [...CLOTH, ...RARE_SCARVES];
-export const STOCK = Object.fromEntries(MARKET_ITEMS.map(item => [item.id, item.rare ? 0 : item.count]));
+const clothSet = (group, rows) => rows.map(([id, name, price, color, ink, pattern, detail]) => ({
+  id, group, name, price, count:group==='scarf'?6:3, color, ink, pattern, detail,
+}));
+const secondCloth = [
+  ...clothSet('scarf',[
+    ['dusk-twill','노을 사선 스카프',740,'#aa6255','#f4c99d','stripe','노을빛 바탕 위로 살구색 사선이 흘러요.'],
+    ['pine-check','솔잎 격자 스카프',820,'#527268','#c1c9a0','check','짙은 솔잎색에 바랜 금색 격자.'],
+    ['fig-paisley','무화과 페이즐리 스카프',870,'#825367','#e9b193','paisley','무화과색 천에 말린 잎무늬를 넣었어요.'],
+    ['river-blue','한강 잔물결 스카프',800,'#577b94','#d6e7dc','wave','햇빛 받은 물결처럼 은은한 파란 천.'],
+    ['persimmon-dot','홍시 점무늬 스카프',720,'#c37343','#f9d6a4','dot','잘 익은 홍시색 위에 작은 크림색 점.'],
+    ['magnolia-bloom','목련 꽃송이 스카프',780,'#debea1','#a06962','flower','아이보리 위에 말린 목련빛 꽃송이.'],
+  ]),
+  ...clothSet('hanky',[
+    ['ink-edge','먹빛 테두리 손수건',430,'#525463','#d9d2be','stripe','담백한 먹색에 얇은 쌀빛 줄을 둘렀어요.'],
+    ['citron-check','유자 잔격자 손수건',460,'#d0a647','#fff0bc','check','밝은 유자색에 크림색 실로 놓은 격자.'],
+    ['apricot-petal','살구꽃 손수건',490,'#cf8e7d','#f7ded0','flower','살구색 천에 작은 흰 꽃잎을 흩뿌렸어요.'],
+    ['fern-drop','고사리 이슬 손수건',420,'#768264','#e4e8c9','dot','고사리빛 천 위에 이슬처럼 촘촘한 점.'],
+  ]),
+];
+const thirdCloth = [
+  ...clothSet('scarf',[
+    ['lantern-red','홍등 줄무늬 스카프',760,'#9f3d40','#edc578','stripe','붉은 초롱 아래 반짝이는 금빛 줄무늬.'],
+    ['celadon-check','청자 격자 스카프',800,'#72988d','#deead9','check','빛바랜 청자색에 부드러운 흰 격자.'],
+    ['chestnut-leaf','군밤 잎무늬 스카프',850,'#82563e','#dfa964','paisley','구운 밤색 바탕에 황금빛 잎이 이어져요.'],
+    ['violet-wave','보랏빛 저녁 물결 스카프',790,'#6d628e','#d9b6cd','wave','어두운 보랏빛과 연분홍 물결이 교차해요.'],
+    ['ivory-camellia','아이보리 동백 스카프',830,'#e6d1ab','#ad585b','flower','아이보리 천에 작고 붉은 동백을 수놓았어요.'],
+    ['blue-hour','해질녘 별점 스카프',740,'#495b77','#edd59f','dot','짙은 남색에 별처럼 작은 노란 점.'],
+  ]),
+  ...clothSet('hanky',[
+    ['clay-check','벽돌 잔체크 손수건',440,'#a56556','#ead2a6','check','벽돌색 골목을 닮은 조용한 체크무늬.'],
+    ['moon-edge','달무리 테두리 손수건',470,'#dcd3b6','#75728f','stripe','달빛색 손수건에 옅은 보랏빛 테두리.'],
+    ['mint-ripple','박하 물결 손수건',410,'#83a793','#eef0d2','wave','연한 박하색 천에 크림색 물결.'],
+    ['copper-star','구리별 손수건',480,'#655968','#daa379','dot','회보라 천 위에 구릿빛 별점.'],
+  ]),
+];
+const clothRounds = [firstCloth, secondCloth, thirdCloth];
+export const MARKET_ITEMS = [...clothRounds.flat(), ...RARE_SCARVES];
+export const EMPTY_STOCK = Object.freeze(Object.fromEntries(MARKET_ITEMS.map(item => [item.id, 0])));
+export const roundCloth = slot => clothRounds[slot-1] ?? firstCloth;
+export const roundStock = slot => ({ ...EMPTY_STOCK, ...Object.fromEntries(roundCloth(slot).map(item=>[item.id,item.count])) });
 export const AVATAR_OPTIONS = {
   character: {
     classic: { name: '남성 캐릭터 · 기본', wardrobe: '남성 전용 소품' },
@@ -105,26 +143,34 @@ export const seoulDay = now => Math.floor((now + seoulOffset) / dayLength);
 export const seoulDayStart = now => seoulDay(now) * dayLength - seoulOffset;
 export const dailyRare = now => RARE_SCARVES[((seoulDay(now) % RARE_SCARVES.length) + RARE_SCARVES.length) % RARE_SCARVES.length];
 export const MARKET_DURATION = 45 * minute;
-const openingBands = [[9 * 60, 12 * 60], [13 * 60, 17 * 60], [18 * 60, 22 * 60]];
+export const MARKET_INTERVAL = 60 * minute;
+export const QUEUE_LEAD = 10 * minute;
 
 function openings(day) {
-  return openingBands.map(([from, to], index) => {
-    // The date and time band give everyone the same random draw, including after a restart.
-    let roll = Math.imul(day ^ 0x21f0aaad, index * 2 + 53);
-    roll = Math.imul(roll ^ (roll >>> 16), 0x45d9f3b);
-    roll = Math.imul(roll ^ (roll >>> 16), 0x45d9f3b);
-    roll = (roll ^ (roll >>> 16)) >>> 0;
-    return day * dayLength - seoulOffset + (from + roll % (to - from)) * minute;
-  });
+  // The Seoul date gives everyone the same first opening, even after a restart.
+  let roll = Math.imul(day ^ 0x21f0aaad, 53);
+  roll = Math.imul(roll ^ (roll >>> 16), 0x45d9f3b);
+  roll = Math.imul(roll ^ (roll >>> 16), 0x45d9f3b);
+  roll = (roll ^ (roll >>> 16)) >>> 0;
+  const first = day * dayLength - seoulOffset + (9 * 60 + roll % 180) * minute;
+  return [first, first + MARKET_INTERVAL, first + 2 * MARKET_INTERVAL];
 }
 
 export function marketSession(now) {
   const day = seoulDay(now);
   const today = openings(day);
-  const previous = today.findLast(opening => opening <= now) ?? openings(day - 1)[2];
-  const next = today.find(opening => opening > now) ?? openings(day + 1)[0];
+  const index = today.findLastIndex(opening => opening <= now);
+  const previous = index<0 ? openings(day - 1)[2] : today[index];
+  const next = today[index+1] ?? openings(day + 1)[0];
   const closes = previous + MARKET_DURATION;
-  return { round: previous / minute, open: now < closes, closes, next };
+  return { round: previous / minute, slot: index<0?3:index+1, open: now < closes, closes, next, nextSlot: (index+1)%3+1 };
+}
+
+export const marketRare = (now,session) => session.testing || session.slot===3 ? dailyRare(now) : null;
+export function marketQueue(session,now) {
+  const starts = session.next - QUEUE_LEAD;
+  const closed = !session.open || now>=session.closes;
+  return { starts, active: closed && now>=starts && now<session.next, warning: closed && now<starts && starts-now<=5*minute };
 }
 
 export const chatText = value => typeof value === 'string'

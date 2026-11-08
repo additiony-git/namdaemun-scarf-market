@@ -1,4 +1,4 @@
-import { AVATAR_OPTIONS, CLOTH, DEFAULT_LOOK, MAP, RARE_SCARVES, SCARVES, SHOP_RADIUS, SPAWN, STALLS, normalizeLook } from './catalog.mjs';
+import { AVATAR_OPTIONS, DEFAULT_LOOK, MAP, RARE_SCARVES, SCARVES, SHOP_RADIUS, SPAWN, STALLS, normalizeLook, roundCloth } from './catalog.mjs';
 
 const ground = -0.09;
 const hex = (h) => { const n = parseInt(h.replace('#', ''), 16); return [(n >> 16) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255]; };
@@ -199,9 +199,9 @@ export function drawAvatarPreview(canvas, appearance, turned=false) {
   ctx.putImageData(image,0,0);
 }
 
-function drawProducts(mesh, stock) {
+function drawProducts(mesh, stock, marketSlot) {
   let firstSlot=0;
-  for (const item of CLOTH) {
+  for (const item of roundCloth(marketSlot)) {
     for (let i=0;i<stock[item.id];i++) {
       const slot=firstSlot+i;
       const stack=Math.floor(slot/3);
@@ -420,9 +420,9 @@ export function createWorld(canvas, markers, onNearby) {
   const world=new Mesh(), signs=[];buildScene(world,signs);
   const staticMesh=buffer(world.data), dynamicMesh=buffer([],gl.DYNAMIC_DRAW), productMesh=buffer([],gl.DYNAMIC_DRAW);
   let productVertices=0;
-  function setStock(stock){
+  function setStock(stock, marketSlot){
     const mesh=new Mesh();
-    drawProducts(mesh,stock);
+    drawProducts(mesh,stock,marketSlot);
     gl.bindBuffer(gl.ARRAY_BUFFER,productMesh);
     gl.bufferData(gl.ARRAY_BUFFER,new Float32Array(mesh.data),gl.DYNAMIC_DRAW);
     productVertices=mesh.data.length/6;
@@ -558,6 +558,18 @@ export function createWorld(canvas, markers, onNearby) {
     enterMarket(){
       entranceShot=false;
       snapCamera=matchMedia('(prefers-reduced-motion: reduce)').matches;
+    },
+    leaveMarket(){
+      dir.clear();
+      Object.assign(self,SPAWN,{a:.25});
+      near='';
+      shopFocused=false;
+      entranceShot=true;
+      entranceRendered=false;
+      for(const peer of peers.values())peer.label.remove();
+      peers.clear();
+      for(const speech of speeches.values())speech.node.remove();
+      speeches.clear();
     },
     focusShop(active){shopFocused=active;},
     setStock,

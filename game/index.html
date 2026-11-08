@@ -21,9 +21,29 @@
         <div class="entrance-logo">
           <h1 id="entrance-title"><span>쓸모없는</span> <span>소비시장</span></h1>
         </div>
-        <button type="button" class="enter-market" id="enter-market">
-          시장입장하기 <i data-icon="arrow" aria-hidden="true"></i>
-        </button>
+        <div class="entrance-deck">
+          <p id="entrance-notice" class="entrance-notice" role="status" tabindex="-1" hidden></p>
+          <div class="entrance-controls" id="entrance-controls">
+            <section class="market-carousel" aria-label="상회 둘러보기" aria-roledescription="슬라이드 배너">
+              <button type="button" id="market-prev" class="carousel-arrow" aria-label="이전 상회"><i data-icon="left"></i></button>
+              <div class="carousel-window">
+                <div class="carousel-track" id="market-slides" aria-live="polite">
+                  <div class="market-slide" data-color="scarf"><span>01 / 03 · 첫 번째 시장</span><strong>남대문 스카프 상회</strong></div>
+                  <div class="market-slide" data-color="junk" aria-hidden="true"><span>02 / 03 · 오픈 준비 중</span><strong>을지로 잡화 상회</strong></div>
+                  <div class="market-slide" data-color="vintage" aria-hidden="true"><span>03 / 03 · 오픈 준비 중</span><strong>광장 빈티지 상회</strong></div>
+                </div>
+              </div>
+              <button type="button" id="market-next" class="carousel-arrow" aria-label="다음 상회"><i data-icon="right"></i></button>
+            </section>
+            <section class="queue-card" id="queue-card" aria-label="남대문 스카프 상회 줄서기">
+              <div><strong id="queue-heading">다음 장</strong><small id="queue-detail">개장 시간을 확인하고 있어요</small></div>
+              <strong id="queue-countdown" role="timer" aria-live="off">--:--</strong>
+            </section>
+          </div>
+          <button type="button" class="enter-market" id="enter-market" aria-describedby="queue-detail">
+            <span id="enter-market-label">시장입장하기</span><i data-icon="arrow" aria-hidden="true"></i>
+          </button>
+        </div>
       </div>
     </section>
     <div id="market-ui" hidden>
@@ -79,6 +99,10 @@
       </nav>
     </header>
 
+    <p class="queue-warning" id="queue-warning" role="status" hidden>
+      <i data-icon="clock" aria-hidden="true"></i><span>다음 장 10분 전에 시작 화면으로 자동 이동해요.</span>
+      <strong id="queue-warning-time" aria-hidden="true"></strong>
+    </p>
     <div class="hud">
       <div class="live" id="live" title="현재 접속 상태"><span class="lamp"></span><span id="live-mode">장터 연결 중</span><span class="divider"></span><i data-icon="users"></i><b id="online">–</b></div>
       <div class="market-stats">

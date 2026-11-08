@@ -23,10 +23,10 @@ export class MarketRoom extends DurableObject {
       return new Response(null, { status: 101, webSocket: client });
     }
     return endpoint(this.market, request, this.env.PAGES_ORIGIN, request.headers.get('CF-Connecting-IP') || 'unknown',
-      (action, { stock, goods, revision, next, open, closes, speech, testing, rare }) => {
+      (action, { stock, goods, revision, round, slot, nextSlot, next, open, closes, speech, testing, rare }) => {
         const update = JSON.stringify(action === 'chat'
           ? { type: 'chat', speech }
-          : { stock, goods, revision, next, open, closes, testing, rare });
+          : { stock, goods, revision, round, slot, nextSlot, next, open, closes, testing, rare });
         for (const socket of this.ctx.getWebSockets()) {
           try { socket.send(update); } catch { /* the client has disconnected */ }
         }
