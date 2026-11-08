@@ -1,4 +1,4 @@
-import { CHAT_FEED_MS, CHAT_LIMIT, CHAT_MS, EMPTY_STOCK, JUNK, MAP, MARKET_ITEMS, SPAWN, START_MONEY, chatText, fit, marketRare, marketSession, niceName, normalizeLook, roundCloth, roundStock, seoulDay, seoulDayStart } from '../game/catalog.mjs';
+import { CHAT_FEED_MS, CHAT_LIMIT, CHAT_MS, EMPTY_STOCK, JUNK, LOBBY_CHAT_LIMIT, LOBBY_CHAT_MS, MAP, MARKET_ITEMS, SPAWN, START_MONEY, chatText, fit, marketRare, marketSession, niceName, normalizeLook, roundCloth, roundStock, seoulDay, seoulDayStart } from '../game/catalog.mjs';
 
 const defaultName = '새내기 손님';
 const presenceMs = 30_000;
@@ -13,6 +13,7 @@ export class Market {
     this.transaction = transaction;
     this.testWindow = testWindow;
     this.people = new Map();
+    this.lobbyMessages = [];
     this.joins = new Map();
     query('CREATE TABLE IF NOT EXISTS players (id TEXT PRIMARY KEY, token TEXT UNIQUE NOT NULL, name TEXT NOT NULL, cash INTEGER NOT NULL, sold INTEGER NOT NULL DEFAULT 0, collected INTEGER NOT NULL DEFAULT 0, reached INTEGER NOT NULL DEFAULT 0, traded INTEGER NOT NULL DEFAULT 0)');
     query('CREATE INDEX IF NOT EXISTS ranking ON players (collected DESC, reached ASC, id ASC)');
@@ -28,6 +29,7 @@ export class Market {
   prune(now) {
     for (const [id, p] of this.people) if (now - p.seen > presenceMs) this.people.delete(id);
     for (const [ip, p] of this.joins) if (now - p.at > 60_000) this.joins.delete(ip);
+    this.lobbyMessages = this.lobbyMessages.filter(message => now - message.sentAt < LOBBY_CHAT_MS);
   }
   session(now) {
     const regular = marketSession(now);
@@ -65,6 +67,7 @@ export class Market {
   }
   action(body, now = Date.now(), ip = 'local') {
     const { action, token, pos } = body ?? {};
+    const room = body?.room === 'lobby' ? 'lobby' : 'market';
     this.prune(now);
     return this.transaction(() => {
       let player = typeof token === 'string' && /^[0-9a-f]{48}$/.test(token)
@@ -82,7 +85,7 @@ export class Market {
       const session = this.session(now);
       const { round, open } = session;
       const allowance = this.get('SELECT round FROM allowances WHERE player = ?', player.id);
-      if (open && allowance?.round !== round) {
+      if (room === 'market' && open && allowance?.round !== round) {
         this.query('INSERT INTO allowances VALUES (?, ?) ON CONFLICT(player) DO UPDATE SET round = excluded.round', player.id, round);
         if (!allowance && player.name === '새내기 상인') {
           this.query('UPDATE players SET name = ? WHERE id = ?', defaultName, player.id);
@@ -97,7 +100,8 @@ export class Market {
       const x = fit(pos?.x, MAP.minX, MAP.maxX, previous.x);
       const z = fit(pos?.z, MAP.minZ, MAP.maxZ, previous.z);
       let event;
-      let speech = previous.speech;
+      let speech = previous.room === room ? previous.speech : undefined;
+      let lastChat = previous.lastChat;
       let look = normalizeLook(this.get('SELECT looks.hat, looks.coat, looks.bag, looks.scarf, avatar_styles.character FROM players LEFT JOIN looks ON looks.player = players.id LEFT JOIN avatar_styles ON avatar_styles.player = players.id WHERE players.id = ?', player.id));
       if (action === 'rename' || action === 'profile') {
         const name = niceName(typeof body.name === 'string' ? body.name.slice(0, 120) : '');
@@ -125,6 +129,7 @@ export class Market {
         player.name = name;
         event = action === 'profile' ? '프로필을 저장했어요.' : '간판에 새 닉네임을 걸었어요.';
       } else if (action === 'buy') {
+        if (room === 'lobby') return problem('시장에 입장한 뒤 매대에서 구매해 주세요.', 409);
         const item = MARKET_ITEMS.find(entry => entry.id === body.item);
         if (!item) return JUNK.some(entry => entry.id === body.item)
           ? problem('잡화점은 오픈 준비 중이에요.', 409) : problem('매대에 없는 물건이에요.');
@@ -151,22 +156,29 @@ export class Market {
       } else if (action === 'chat') {
         const text = chatText(body.text);
         if (!text || [...text].length > CHAT_LIMIT) return problem('채팅은 1~80자로 입력해 주세요.');
-        if (speech && now - speech.sentAt < chatCooldown) return problem('잠시 후 다시 말해 주세요.', 429);
+        if (lastChat !== undefined && now - lastChat < chatCooldown) return problem('잠시 후 다시 말해 주세요.', 429);
         speech = { playerId: player.id, name: player.name, text, sentAt: now, expiresAt: now + CHAT_MS };
+        lastChat = now;
+        if (room === 'lobby') {
+          this.lobbyMessages.push(speech);
+          if (this.lobbyMessages.length > LOBBY_CHAT_LIMIT) this.lobbyMessages.shift();
+        }
       } else if (action !== 'join' && action !== 'sync') {
         return problem('알 수 없는 거래입니다.');
       }
-      this.people.set(player.id, { id: player.id, name: player.name, x, z, seen: now, speech, look });
+      this.people.set(player.id, { id: player.id, name: player.name, room, x, z, seen: now, speech, lastChat, look });
+      const roomPeople = [...this.people.values()].filter(person => person.room === room);
       const ranking = this.query('SELECT id, name, collected FROM players WHERE collected > 0 ORDER BY collected DESC, reached ASC, id ASC LIMIT 30');
       const myRank = player.collected ? this.get('SELECT COUNT(*) + 1 AS rank FROM players WHERE collected > ? OR (collected = ? AND reached < ?)', player.collected, player.collected, player.reached).rank : null;
       const outfits = Object.fromEntries(this.query('SELECT character, hat, coat, bag, scarf FROM character_outfits WHERE player = ?', player.id).map(row=>[row.character,normalizeLook(row)]));
       outfits[look.character] = look;
       return {
-        token: issued, event, speech: speech?.sentAt + CHAT_FEED_MS > now ? speech : undefined, now, ...this.inventory(now, session),
+        token: issued, event, room, speech: speech?.sentAt + CHAT_FEED_MS > now ? speech : undefined, now, ...this.inventory(now, session),
         player: { id: player.id, name: player.name, cash: player.cash, sold: player.sold, collected: player.collected, rank: myRank, look, outfits },
         basket: this.query('SELECT item, qty, updated FROM basket WHERE player = ? ORDER BY updated DESC, item', player.id),
-        ranking, online: this.people.size,
-        peers: [...this.people.values()].filter(p => p.id !== player.id).slice(0, 35).map(({ id, name, x, z, speech, look }) =>
+        ranking, online: roomPeople.length,
+        lobbyMessages: room === 'lobby' ? this.lobbyMessages.slice() : undefined,
+        peers: (room === 'market' ? roomPeople : []).filter(p => p.id !== player.id).slice(0, 35).map(({ id, name, x, z, speech, look }) =>
           ({ id, name, x, z, look, speech: speech?.sentAt + CHAT_FEED_MS > now ? speech : undefined })),
       };
     });

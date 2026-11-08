@@ -1,4 +1,4 @@
-import { AVATAR_OPTIONS, CHAT_FEED_MS, CHAT_LIMIT, CHAT_MS, DEFAULT_LOOK, EMPTY_STOCK, JUNK, LINES, MARKET_ITEMS, SCARVES, SPAWN, START_MONEY, avatarOptionsFor, chatText, marketQueue, marketRare, marketSession, niceName, normalizeLook, roundCloth, roundStock, seoulDay, seoulDayStart } from './catalog.mjs';
+import { AVATAR_OPTIONS, CHAT_FEED_MS, CHAT_LIMIT, CHAT_MS, DEFAULT_LOOK, EMPTY_STOCK, JUNK, LINES, LOBBY_CHAT_LIMIT, LOBBY_CHAT_MS, MARKET_ITEMS, SCARVES, SPAWN, START_MONEY, avatarOptionsFor, chatText, marketQueue, marketRare, marketSession, niceName, normalizeLook, roundCloth, roundStock, seoulDay, seoulDayStart } from './catalog.mjs';
 import { MARKET_API } from './config.mjs';
 import { createWorld, drawAvatarPreview } from './world.mjs';
 
@@ -22,6 +22,7 @@ const shapes = {
   clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v6h4"/>',
   message: '<path d="M20 16H9l-5 4V5h16zM8 9h8m-8 3h6"/>',
   turn: '<path d="M20 8a8 8 0 1 0 0 8M20 3v6h-6"/>',
+  exit: '<path d="M11 4H5v16h6m-2-8h12m-4-4 4 4-4 4"/>',
 };
 const $ = id => document.getElementById(id);
 const format = number => Number(number).toLocaleString('ko-KR');
@@ -44,8 +45,8 @@ function read(key){try{return localStorage.getItem(key);}catch{return temporary.
 function write(key,value){temporary.set(key,value);try{localStorage.setItem(key,value);}catch{/* keep this session playable */}}
 const blank = () => ({ id:'solo', name:'새내기 손님', cash:START_MONEY, collected:0, rank:null });
 let token=read(tokenKey), model, world, mode=endpoint?'loading':'solo', modal='', busy=false, timeOffset=0, misses=0, lastPos='', syncTimer;
-let enteredMarket=false;
-let entranceSchedule, scheduleRefreshAt=0, schedulePending=false, selectedMarket=0;
+let enteredMarket=false, roomRevision=0;
+let entranceSchedule, selectedMarket=0;
 let muted=true, audioCtx, toastTimer, acting=false;
 let profileTab='avatar', profileFeedback='';
 const profileDrafts=new Map();
@@ -60,6 +61,7 @@ const openingTime=new Intl.DateTimeFormat('ko-KR',{timeZone:'Asia/Seoul',month:'
 const closedStock=EMPTY_STOCK;
 const shortTime=new Intl.DateTimeFormat('ko-KR',{timeZone:'Asia/Seoul',hour:'2-digit',minute:'2-digit',hourCycle:'h23'});
 const dialog=$('modal');
+const activeRoom=()=>enteredMarket?'market':'lobby';
 function demo(action='sync', extra={}) {
   let data;
   try {data=JSON.parse(read(demoKey));} catch { /* start fresh */ }
@@ -70,7 +72,7 @@ function demo(action='sync', extra={}) {
   const initial=roundStock(session.slot);
   const day=seoulDay(now);
   if(data.player.name==='새내기 상인')data.player.name='새내기 손님';
-  if(session.open&&data.round!==session.round){
+  if(enteredMarket&&session.open&&data.round!==session.round){
     data.round=session.round;
     data.stock={...initial};
     data.player.cash=Math.max(data.player.cash,START_MONEY);
@@ -116,10 +118,10 @@ function demo(action='sync', extra={}) {
   return {...data,...session,rare,stock:session.open?stock:closedStock,
     online:1,peers:[],ranking:p.collected?[p]:[],now,revision:phase*1000+used,event};
 }
-async function request(action, extra={}){
+async function request(action, extra={}, room=activeRoom()){
   const response=await fetch(endpoint,{
     method:'POST', headers:{'Content-Type':'text/plain;charset=UTF-8'},
-    body:JSON.stringify({action, token, pos:world?.position()??SPAWN, ...extra}), signal:AbortSignal.timeout(6000),
+    body:JSON.stringify({action, token, room, pos:room==='market'?world?.position()??SPAWN:SPAWN, ...extra}), signal:AbortSignal.timeout(6000),
   });
   let data;
   try {data=await response.json();}catch{throw Error('장터 서버에 연결할 수 없어요.');}
@@ -133,10 +135,14 @@ async function request(action, extra={}){
 function setModel(data){
   model=data;
   noteSchedule(data);
-  world?.setPeers(data.peers,data.player.id,data.player.look);
-  showChat(data.speech);
-  for(const peer of data.peers)showChat(peer.speech);
-  setInventory(data);
+  if(enteredMarket){
+    world?.setPeers(data.peers,data.player.id,data.player.look);
+    showChat(data.speech);
+    for(const peer of data.peers)showChat(peer.speech);
+    setInventory(data);
+  }else{
+    for(const speech of data.lobbyMessages??[])showLobbyChat(speech);
+  }
   render();
 }
 function marketAvailability(snapshot=inventory){
@@ -210,27 +216,57 @@ function showChat(speech){
   if(!(duration>0)||seenChat.has(key))return;
   seenChat.add(key);
   const log=$('chat-feed');
-  const row=document.createElement('div');
-  const name=document.createElement('b');
-  name.textContent=speech.name||model?.peers.find(peer=>peer.id===speech.playerId)?.name||'손님';
-  row.classList.toggle('own-message',speech.playerId===model?.player.id);
-  row.append(name,document.createTextNode(speech.text));
+  const row=chatRow(speech);
   log.append(row);
   if(log.children.length>3)log.firstElementChild.remove();
   setTimeout(()=>row.remove(),duration);
   setTimeout(()=>seenChat.delete(key),duration+1000);
 }
+function chatRow(speech){
+  const row=document.createElement('div');
+  const name=document.createElement('b');
+  name.textContent=speech.name||model?.peers.find(peer=>peer.id===speech.playerId)?.name||'손님';
+  row.classList.toggle('own-message',speech.playerId===model?.player.id);
+  row.append(name,document.createTextNode(speech.text));
+  return row;
+}
+function showLobbyChat(speech){
+  if(!speech||typeof speech.text!=='string'||!Number.isFinite(speech.sentAt)||
+    Date.now()+timeOffset-speech.sentAt>=LOBBY_CHAT_MS)return;
+  const log=$('lobby-chat-feed');
+  const key=speech.playerId+':'+speech.sentAt;
+  const rows=[...log.children];
+  if(rows.some(row=>row.dataset.key===key))return;
+  const row=chatRow(speech);
+  row.dataset.key=key;
+  row.dataset.sentAt=String(speech.sentAt);
+  const follow=log.scrollHeight-log.scrollTop-log.clientHeight<28;
+  log.insertBefore(row,rows.find(message=>Number(message.dataset.sentAt)>speech.sentAt)??null);
+  if(log.children.length>LOBBY_CHAT_LIMIT)log.firstElementChild.remove();
+  $('lobby-chat-empty').hidden=true;
+  if(follow)log.scrollTop=log.scrollHeight;
+}
+function closeFeed(){
+  const socket=feed;
+  feed=null;
+  socket?.close();
+  retryFeedAt=0;
+}
 function connectFeed(){
   if(feed||document.hidden||Date.now()<retryFeedAt||!endpoint.startsWith('https://'))return;
   const url=new URL(endpoint);
   url.protocol='wss:';
+  const room=activeRoom();
+  if(room==='lobby')url.searchParams.set('room','lobby');
   const socket=new WebSocket(url);
   feed=socket;
   socket.onmessage=({data})=>{
     if(feed!==socket)return;
     try {
       const update=JSON.parse(data);
-      if(update.type==='chat')showChat(update.speech);
+      if(room==='lobby'){
+        if(update.type==='chat')showLobbyChat(update.speech);
+      }else if(update.type==='chat')showChat(update.speech);
       else setInventory(update);
     } catch { /* wait for the next server sync */ }
   };
@@ -245,6 +281,10 @@ function status() {
   $('live').classList.toggle('offline',mode!=='online');
   $('live').title=mode==='solo'?'이 브라우저에만 기록되는 혼자 체험 모드':mode==='online'?'현재 이 골목에 접속한 상인 수':'온라인 장터 연결 상태';
   $('online').textContent=mode==='online'&&model?format(model.online):mode==='solo'?'1':'–';
+  const lobbyOnline=!enteredMarket&&mode==='online';
+  setText('lobby-chat-status',lobbyOnline?'대기 중 '+format(model.online)+'명':mode==='solo'?'온라인에서 함께 대화할 수 있어요':mode==='retry'?'대기실에 다시 연결하고 있어요':'대기실에 연결하고 있어요');
+  $('lobby-chat-input').disabled=!lobbyOnline;
+  $('lobby-send-chat').disabled=!lobbyOnline||sendingChat;
 }
 function noteSchedule(data){
   if(!Number.isFinite(data.now)||!Number.isFinite(data.next)||!Number.isFinite(data.closes)||
@@ -257,16 +297,6 @@ function scheduleAt(now){
   const current=entranceSchedule;
   return current&&now<(current.open?current.closes:current.next)?current:marketSession(now);
 }
-async function refreshEntrance(){
-  if(!endpoint||enteredMarket||schedulePending||document.hidden||Date.now()<scheduleRefreshAt)return;
-  schedulePending=true;
-  scheduleRefreshAt=Date.now()+25_000;
-  try {
-    const response=await fetch(endpoint,{signal:AbortSignal.timeout(5000)});
-    if(response.ok)noteSchedule(await response.json());
-  } catch { /* the shared calendar remains available locally */ }
-  finally { schedulePending=false; }
-}
 function countdownText(ms){
   const seconds=Math.ceil(Math.max(0,ms)/1000);
   const hours=Math.floor(seconds/3600);
@@ -275,17 +305,22 @@ function countdownText(ms){
 function setText(id,text){const node=$(id);if(node.textContent!==text)node.textContent=text;}
 function renderEntrance(session, now, waiting){
   const available=selectedMarket===0;
-  $('queue-card').hidden=!available;
-  $('entrance-controls').classList.toggle('coming-soon',!available);
+  const button=$('enter-market');
+  button.disabled=!available||waiting.active;
+  setText('enter-market-label',!available?'오픈 준비 중':waiting.active?'줄서기 중':'시장입장하기');
+  if(!available){
+    $('queue-card').dataset.state='preparing';
+    setText('queue-heading','장 준비 중');
+    setText('queue-detail','개장 일정을 준비하고 있어요');
+    setText('queue-countdown','--:--');
+    return;
+  }
   const open=session.open&&now<session.closes;
   $('queue-card').dataset.state=waiting.active?'queue':open?'open':'waiting';
   setText('queue-heading',waiting.active?session.nextSlot+'차 줄서기':open?(session.testing?'테스트 장 판매 중':session.slot+'차 판매 중'):session.nextSlot+'차 개장까지');
   const nextDate=seoulDay(session.next)===seoulDay(now)?shortTime.format(session.next):openingTime.format(session.next);
   setText('queue-detail',open?'다음 '+session.nextSlot+'차 · '+nextDate:waiting.active?'개장 '+nextDate+' · 한국 시간':'줄서기 '+shortTime.format(waiting.starts)+' · 개장 '+nextDate);
   setText('queue-countdown',countdownText(session.next-now));
-  $('enter-market').disabled=!available||waiting.active;
-  $('enter-market').setAttribute('aria-describedby',available?'queue-detail':'market-slides');
-  setText('enter-market-label',!available?'오픈 준비 중':waiting.active?'줄서기 중':'시장입장하기');
 }
 function selectMarket(index){
   const track=$('market-slides');
@@ -296,19 +331,17 @@ function selectMarket(index){
   renderEntrance(session,now,marketQueue(session,now));
 }
 function returnToEntrance(session){
+  if(!enteredMarket)return;
   enteredMarket=false;
-  clearTimeout(syncTimer);
-  const socket=feed;
-  feed=null;
-  socket?.close();
-  retryFeedAt=0;
+  roomRevision++;
+  closeFeed();
   if(dialog.open)dialog.close();
   setChatOpen(false);
   nearby='';
   closeShop();
   clearSoldoutEffect();
   world?.leaveMarket();
-  model=inventory=undefined;
+  inventory=undefined;
   mode=endpoint?'loading':'solo';
   transitionRequested=0;
   lastPos='';
@@ -318,17 +351,20 @@ function returnToEntrance(session){
   $('entrance').hidden=false;
   selectMarket(0);
   const notice=$('entrance-notice');
-  notice.textContent=session.nextSlot+'차 장 줄서기가 시작됐어요. 개장하면 입장할 수 있어요.';
+  notice.textContent=session?session.nextSlot+'차 장 줄서기가 시작됐어요. 개장하면 입장할 수 있어요.':'시작 화면으로 돌아왔어요.';
   notice.hidden=false;
   notice.focus({preventScroll:true});
-  scheduleRefreshAt=0;
+  status();
+  if(endpoint)queue(0);
 }
 function tick(){
   const now=Date.now()+timeOffset, session=scheduleAt(now), waitingLine=marketQueue(session,now);
   if(enteredMarket&&waitingLine.active)returnToEntrance(session);
   if(!enteredMarket){
     renderEntrance(session,now,waitingLine);
-    void refreshEntrance();
+    const log=$('lobby-chat-feed');
+    while(log.firstElementChild&&now-Number(log.firstElementChild.dataset.sentAt)>=LOBBY_CHAT_MS)log.firstElementChild.remove();
+    $('lobby-chat-empty').hidden=Boolean(log.children.length);
     return;
   }
   $('queue-warning').hidden=!waitingLine.warning;
@@ -566,25 +602,60 @@ function setChatOpen(open){
     $('chat-input').blur();
   }
 }
-async function sendChat(){
-  if(!enteredMarket||sendingChat)return;
+function setLobbyChatOpen(open, focus=true){
+  $('lobby-chat').hidden=!open;
+  $('lobby-chat-toggle').setAttribute('aria-expanded',String(open));
+  if(!focus)return;
+  if(open){
+    const log=$('lobby-chat-feed');
+    log.scrollTop=log.scrollHeight;
+    if(!$('lobby-chat-input').disabled)$('lobby-chat-input').focus();
+    else $('lobby-chat-close').focus();
+  }else $('lobby-chat-toggle').focus();
+}
+async function claimRoomRequest(revision){
+  while(busy&&revision===roomRevision)await new Promise(resolve=>setTimeout(resolve,35));
+  if(revision!==roomRevision)return false;
+  busy=true;
+  return true;
+}
+async function sendChat(room){
+  if(room!==activeRoom()||sendingChat)return;
   if(mode!=='online'){toast('장터에 연결한 뒤 다시 시도해 주세요.');return;}
-  const input=$('chat-input');
+  const revision=roomRevision;
+  const lobby=room==='lobby';
+  const input=$(lobby?'lobby-chat-input':'chat-input');
+  const button=$(lobby?'lobby-send-chat':'send-chat');
+  const errorMessage=$('lobby-chat-error');
+  const report=message=>{
+    if(lobby){errorMessage.textContent=message;errorMessage.hidden=false;}
+    else toast(message);
+  };
   const original=input.value;
   const text=chatText(original);
-  if(!text||[...text].length>CHAT_LIMIT){toast('채팅은 1~80자로 입력해 주세요.');return;}
+  if(!text||[...text].length>CHAT_LIMIT){report('채팅은 1~80자로 입력해 주세요.');return;}
   sendingChat=true;
-  $('send-chat').disabled=true;
+  if(lobby)errorMessage.hidden=true;
+  button.disabled=true;
+  let claimed=false;
   try{
-    const result=await request('chat',{text});
-    if(!enteredMarket)return;
-    showChat(result.speech);
-    if(input.value===original){input.value='';setChatOpen(false);}
+    claimed=await claimRoomRequest(revision);
+    if(!claimed)return;
+    const result=await request('chat',{text},room);
+    if(revision!==roomRevision)return;
+    setModel(result);
+    if(input.value===original){
+      input.value='';
+      if(!lobby)setChatOpen(false);
+    }
   }catch(error){
-    toast(error.message);
+    if(revision===roomRevision)report(error.message);
   }finally{
+    if(claimed)busy=false;
     sendingChat=false;
-    $('send-chat').disabled=false;
+    if(!lobby)button.disabled=false;
+    status();
+    if(revision!==roomRevision)queue(0);
   }
 }
 function line(){
@@ -619,46 +690,59 @@ function chime(){
     }
   }catch{/* sound is optional */}
 }
-function queue(ms) {if(enteredMarket){clearTimeout(syncTimer);syncTimer=setTimeout(connect,ms);}}
+function queue(ms) {
+  if(!endpoint)return;
+  clearTimeout(syncTimer);
+  syncTimer=setTimeout(connect,ms);
+}
 async function connect(){
-  if(!enteredMarket||!endpoint||mode==='solo')return;
+  if(!endpoint)return;
   if(busy){queue(800);return;}
-  if(document.hidden&&model){queue(5000);return;}
+  if(document.hidden){queue(5000);return;}
+  const room=activeRoom(), revision=roomRevision;
   busy=true;
   const pos=world?.position()??SPAWN;
   const at=pos.x+','+pos.z;
-  let next=3500;
+  let next=room==='lobby'?5000:3500;
   try{
     let data;
-    try{data=await request(token?'sync':'join');}
-    catch(e){if(e.status!==401||!enteredMarket)throw e;data=await request('join');}
-    if(!enteredMarket)return;
+    try{data=await request(token?'sync':'join',{},room);}
+    catch(e){if(e.status!==401||revision!==roomRevision)throw e;data=await request('join',{},room);}
+    if(revision!==roomRevision)return;
     mode='online';misses=0;setModel(data);
-    if(!enteredMarket)return;
+    if(revision!==roomRevision)return;
     connectFeed();
-    if(lastPos!==at||world?.moving()||data.peers.length>0)next=1800;
-    if(shop&&feed?.readyState!==WebSocket.OPEN)next=1100;
-    lastPos=at;
+    if(room==='lobby'){
+      if(feed?.readyState!==WebSocket.OPEN)next=2300;
+    }else{
+      if(lastPos!==at||world?.moving()||data.peers.length>0)next=1800;
+      if(shop&&feed?.readyState!==WebSocket.OPEN)next=1100;
+      lastPos=at;
+    }
   }catch{
-    if(!enteredMarket)return;
+    if(revision!==roomRevision)return;
     misses++;
     mode='retry';status();renderShop();
     if(dialog.open&&modal==='profile')renderModal();
     next=Math.min(15000,3000*misses);
-  }finally{busy=false;if(mode!=='solo')queue(next);}
+  }finally{
+    busy=false;
+    queue(revision===roomRevision?next:0);
+  }
 }
 async function act(action, extra){
-  if(!enteredMarket||acting)return;
+  if((!enteredMarket&&action!=='profile')||acting)return;
   if(!['online','solo'].includes(mode)){toast('장터에 연결한 뒤 다시 시도해 주세요.');return;}
   acting=true;
+  const revision=roomRevision, room=activeRoom();
+  let claimed=false;
   renderShop();
   if(dialog.open&&modal==='profile')renderModal();
   try{
-    if(mode==='online'&&busy){await new Promise(resolve=>{const p=setInterval(()=>{if(!busy){clearInterval(p);resolve();}},35);});}
-    if(!enteredMarket)return;
-    busy=true;
-    const result=mode==='solo'?demo(action,extra):await request(action,extra);
-    if(!enteredMarket)return;
+    claimed=await claimRoomRequest(revision);
+    if(!claimed)return;
+    const result=mode==='solo'?demo(action,extra):await request(action,extra,room);
+    if(revision!==roomRevision)return;
     if(result.event){
       if(action==='profile'&&dialog.open&&modal==='profile')profileFeedback=result.event;
       else if(shop&&action==='buy')$('shop-feedback').textContent=result.event;
@@ -668,12 +752,15 @@ async function act(action, extra){
     setModel(result);
     if(action==='profile'&&$('new-name'))$('new-name').value=result.player.name;
   }catch(error){
+    if(revision!==roomRevision)return;
     if(action==='profile'&&dialog.open&&modal==='profile')profileFeedback=error.message;
     else if(shop&&action==='buy')$('shop-feedback').textContent=error.message;
     else toast(error.message);
     if(mode==='online')queue(250);
   }finally{
-    busy=false;acting=false;
+    if(claimed)busy=false;
+    acting=false;
+    if(revision!==roomRevision)queue(0);
     renderShop();
     if(dialog.open)renderModal();
   }
@@ -724,11 +811,12 @@ document.addEventListener('submit', e=>{
     e.preventDefault();
     void act('profile',{name:$('new-name').value,look:selectedLook(e.target)});
   }
-  if(e.target.id==='chat-form'){e.preventDefault();void sendChat();}
+  if(e.target.id==='chat-form'){e.preventDefault();void sendChat('market');}
+  if(e.target.id==='lobby-chat-form'){e.preventDefault();void sendChat('lobby');}
 });
-$('bag-nav').onclick=()=>open('profile','bag');
-$('rank-nav').onclick=()=>open('rank');
-$('profile').onclick=()=>open('profile');
+for(const id of ['bag-nav','lobby-bag'])$(id).onclick=()=>open('profile','bag');
+for(const id of ['rank-nav','lobby-rank'])$(id).onclick=()=>open('rank');
+for(const id of ['profile','lobby-profile'])$(id).onclick=()=>open('profile');
 $('close-modal').onclick=()=>dialog.close();
 dialog.addEventListener('click', e=>{if(e.target===dialog){const r=dialog.getBoundingClientRect();if(e.clientX<r.left||e.clientX>r.right||e.clientY<r.top||e.clientY>r.bottom)dialog.close();}});
 dialog.addEventListener('close',()=>{modal='';});
@@ -766,10 +854,17 @@ $('interact').onclick=toggleShop;
 $('close-shop').onclick=closeShop;
 $('chat-toggle').onclick=()=>setChatOpen($('chat-form').hidden);
 $('close-chat').onclick=()=>setChatOpen(false);
+$('lobby-chat-toggle').onclick=()=>setLobbyChatOpen($('lobby-chat').hidden);
+$('lobby-chat-close').onclick=()=>setLobbyChatOpen(false);
+$('exit-market').onclick=()=>returnToEntrance();
 const dirMap={w:'w',a:'a',s:'s',d:'d',ArrowUp:'w',ArrowDown:'s',ArrowLeft:'a',ArrowRight:'d'};
 function direction(key){return dirMap[key]??dirMap[key.toLowerCase()];}
 document.addEventListener('keydown',e=>{
-  if(!enteredMarket||e.isComposing)return;
+  if(e.isComposing)return;
+  if(!enteredMarket){
+    if(e.key==='Escape'&&!$('lobby-chat').hidden&&!dialog.open){e.preventDefault();setLobbyChatOpen(false);}
+    return;
+  }
   if(e.key==='Escape'&&!$('chat-form').hidden&&!dialog.open){e.preventDefault();setChatOpen(false);return;}
   if(dialog.open||e.ctrlKey||e.metaKey||e.altKey||e.target.matches('input, textarea'))return;
   if(e.key==='Enter'&&!e.repeat&&!e.target.closest('button, a')){e.preventDefault();setChatOpen(true);return;}
@@ -781,14 +876,9 @@ document.addEventListener('keydown',e=>{
 document.addEventListener('keyup',e=>{const dir=direction(e.key);if(dir)world?.dir.delete(dir);});
 window.addEventListener('blur',()=>world?.dir.clear());
 document.addEventListener('visibilitychange',()=>{
-  if(!document.hidden){scheduleRefreshAt=0;tick();}
-  if(!enteredMarket)return;
   world?.dir.clear();
-  if(document.hidden){
-    const socket=feed;
-    feed=null;
-    socket?.close();
-  } else if(mode!=='solo')queue(100);
+  if(document.hidden)closeFeed();
+  else{tick();queue(100);}
 });
 for(const control of document.querySelectorAll('[data-dir]')){
   control.addEventListener('pointerdown',e=>{control.setPointerCapture(e.pointerId);world?.dir.add(control.dataset.dir);});
@@ -822,6 +912,10 @@ $('enter-market').onclick=()=>{
   const now=Date.now()+timeOffset, session=scheduleAt(now);
   if(enteredMarket||selectedMarket!==0||marketQueue(session,now).active)return;
   enteredMarket=true;
+  roomRevision++;
+  closeFeed();
+  setLobbyChatOpen(false,false);
+  if(endpoint)mode='loading';
   $('entrance-notice').hidden=true;
   $('entrance').hidden=true;
   $('market-ui').hidden=false;
@@ -830,10 +924,11 @@ $('enter-market').onclick=()=>{
   world?.enterMarket();
   world?.setStock(closedStock,session.slot);
   tick();
-  if(endpoint)void connect();else setModel(demo());
+  if(endpoint){status();queue(0);}else setModel(demo());
 };
 $('market-prev').onclick=()=>selectMarket(selectedMarket-1);
 $('market-next').onclick=()=>selectMarket(selectedMarket+1);
 tick();
+if(endpoint)queue(0);else setModel(demo());
 setInterval(tick,500);
 setInterval(()=>{if(enteredMarket&&!dialog.open&&!document.hidden)line();},15000);

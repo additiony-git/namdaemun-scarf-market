@@ -77,7 +77,6 @@ canvas { position: absolute; inset: 0; display: block; width: 100%; height: 100%
   display: grid; justify-items: center; gap: 9px; width: min(610px, 100%);
 }
 .entrance-controls { display: grid; grid-template-columns: 1.14fr 1fr; gap: 8px; width: 100%; }
-.entrance-controls.coming-soon { width: min(310px, 100%); grid-template-columns: 1fr; }
 .market-carousel, .queue-card {
   min-width: 0; min-height: 56px; border: 1px solid #e2a7669c; border-radius: 9px;
   background: #251810f5; box-shadow: 0 3px 14px #170c08a0;
@@ -101,6 +100,7 @@ canvas { position: absolute; inset: 0; display: block; width: 100%; height: 100%
 #queue-countdown { font-size: clamp(18px, 4.6vw, 24px); font-variant-numeric: tabular-nums; color: #f8c667; white-space: nowrap; }
 .queue-card[data-state=queue] { border-color: #ffcf79; box-shadow: 0 0 18px #f6b0475c; }
 .queue-card[data-state=open] #queue-countdown { color: #c9dea5; }
+.queue-card[data-state=preparing] #queue-countdown { color: #c5b09c; }
 .entrance-notice {
   margin: 0; padding: 5px 9px; border-radius: 6px; background: #2d1c13f5; color: #ffe5b2;
   font-size: 12px; font-weight: 850; text-align: center; word-break: keep-all;
@@ -163,6 +163,42 @@ canvas { position: absolute; inset: 0; display: block; width: 100%; height: 100%
 .icon-btn { width: 39px; padding: 0; }
 .glass:hover { background: #503326; }
 .navitem i { color: var(--gold); }
+.exit-market { border-color: #be8b5d; }
+.entrance-nav {
+  position: absolute; z-index: 2; top: var(--top); right: var(--edge);
+  display: flex; justify-content: center; gap: 5px;
+}
+.entrance-nav .navitem[aria-expanded=true] { border-color: #d7a766; background: #523723; }
+.lobby-chat {
+  position: absolute; z-index: 3; top: calc(var(--top) + 46px); right: var(--edge);
+  display: grid; grid-template-rows: auto auto minmax(36px, 1fr) auto auto;
+  gap: 8px; width: min(340px, calc(100% - 2 * var(--edge))); max-height: min(345px, calc(100dvh - var(--top) - 56px));
+  padding: 12px; border: 1px solid #d2a065; border-radius: 10px;
+  background: #251910fa; box-shadow: 0 10px 30px #170c08bf;
+}
+.lobby-chat header { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; }
+.lobby-chat h2 { margin: 0; font-size: 16px; color: #ffe6ba; }
+.lobby-chat header p { margin: 3px 0 0; color: #dac3ac; font-size: 11px; }
+.lobby-chat header button { width: 31px; height: 31px; flex: none; }
+.lobby-chat-empty, .lobby-chat-error { margin: 0; color: #e4cbb2; font-size: 12px; line-height: 1.45; }
+.lobby-chat-error { color: #ffc09d; }
+.lobby-chat-feed { grid-row: 3; display: grid; align-content: start; gap: 4px; min-height: 95px; overflow: auto; }
+.lobby-chat-feed > div { padding: 5px 7px; border-radius: 5px; background: #493122; font-size: 12px; line-height: 1.4; overflow-wrap: anywhere; }
+.lobby-chat-feed b { color: #ffd593; margin-right: 6px; }
+.lobby-chat-feed .own-message { background: #4a3b25; }
+.lobby-chat-form { grid-row: 4; display: flex; gap: 6px; min-width: 0; }
+.lobby-chat-form input { flex: 1; min-width: 0; padding: 7px; border: 1px solid #a27a55; border-radius: 6px; background: #1b120d; color: var(--text); font-size: 16px; }
+.lobby-chat-form button { white-space: nowrap; }
+.lobby-chat-error { grid-row: 5; }
+@media (max-width: 1024px) {
+  .entrance-nav { left: var(--edge); }
+  .entrance-inner { padding-top: calc(var(--top) + 46px); }
+}
+@media (max-width: 640px) {
+  .entrance-nav .navitem { width: auto; height: 36px; padding: 0 7px; gap: 4px; }
+  .entrance-nav .navitem span { display: inline; }
+  .entrance-nav i { width: 13px; height: 13px; }
+}
 #nickname { max-width: 112px; overflow: hidden; text-overflow: ellipsis; }
 .hud { top: calc(var(--top) + 64px); left: var(--edge); display: grid; gap: 6px; justify-items: start; }
 .live, .market-stats { display: flex; align-items: center; gap: 7px; padding: 7px 9px; font-size: 11px; }
@@ -290,6 +326,12 @@ canvas { position: absolute; inset: 0; display: block; width: 100%; height: 100%
 @media (max-width: 640px) {
   .soldout-scene { --impact-y: 43%; --burst-size: min(37vw, 210px); }
   .soldout-seal { min-width: min(215px, 75vw); }
+}
+@media (max-width: 360px) {
+  .topbar .navitem, .topbar .nav .icon-btn { width: 27px; }
+  .topbar .brand img { width: 24px; height: 24px; }
+  .topbar .brand strong { font-size: 10px; }
+  .entrance-nav .navitem { padding: 0 5px; font-size: 10px; }
 }
 @media (prefers-reduced-motion: reduce) {
   .speech.soldout-pop, .soldout-seal { animation: none; }

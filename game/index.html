@@ -17,13 +17,33 @@
         <source media="(max-aspect-ratio: 3/4)" srcset="./market-intro-warm-portrait.webp">
         <img src="./market-intro-warm.webp" alt="스카프 아저씨가 환호하는 남대문 장터 손님들 앞에서 길게 펼쳐지는 스카프를 흔드는 모습" fetchpriority="high">
       </picture>
+      <nav class="entrance-nav" aria-label="시작 화면 메뉴">
+        <button class="glass navitem" type="button" id="lobby-profile"><i data-icon="user"></i><span>내 프로필</span></button>
+        <button class="glass navitem" type="button" id="lobby-bag"><i data-icon="bag"></i><span>장바구니</span></button>
+        <button class="glass navitem" type="button" id="lobby-rank"><i data-icon="trophy"></i><span>랭킹</span></button>
+        <button class="glass navitem" type="button" id="lobby-chat-toggle" aria-controls="lobby-chat" aria-expanded="false"><i data-icon="message"></i><span>대기실 채팅</span></button>
+      </nav>
+      <section class="lobby-chat" id="lobby-chat" aria-labelledby="lobby-chat-title" hidden>
+        <header>
+          <div><h2 id="lobby-chat-title">대기실 채팅</h2><p id="lobby-chat-status">대기실에 연결하고 있어요</p></div>
+          <button type="button" class="glass icon-btn" id="lobby-chat-close" aria-label="대기실 채팅 닫기"><i data-icon="close"></i></button>
+        </header>
+        <p class="lobby-chat-empty" id="lobby-chat-empty">아직 대화가 없어요. 먼저 인사를 건네 보세요.</p>
+        <div id="lobby-chat-feed" class="lobby-chat-feed" role="log" aria-label="대기실의 최근 대화" tabindex="0"></div>
+        <form id="lobby-chat-form" class="lobby-chat-form">
+          <label class="sr-only" for="lobby-chat-input">대기실 메시지</label>
+          <input id="lobby-chat-input" type="text" maxlength="80" placeholder="대기실 손님에게 한마디" autocomplete="off" required disabled>
+          <button type="submit" class="primary" id="lobby-send-chat" disabled>보내기</button>
+        </form>
+        <p id="lobby-chat-error" class="lobby-chat-error" role="status" hidden></p>
+      </section>
       <div class="entrance-inner">
         <div class="entrance-logo">
           <h1 id="entrance-title"><span>쓸모없는</span> <span>소비시장</span></h1>
         </div>
         <div class="entrance-deck">
           <p id="entrance-notice" class="entrance-notice" role="status" tabindex="-1" hidden></p>
-          <div class="entrance-controls" id="entrance-controls">
+          <div class="entrance-controls">
             <section class="market-carousel" aria-label="상회 둘러보기" aria-roledescription="슬라이드 배너">
               <button type="button" id="market-prev" class="carousel-arrow" aria-label="이전 상회"><i data-icon="left"></i></button>
               <div class="carousel-window">
@@ -35,7 +55,7 @@
               </div>
               <button type="button" id="market-next" class="carousel-arrow" aria-label="다음 상회"><i data-icon="right"></i></button>
             </section>
-            <section class="queue-card" id="queue-card" aria-label="남대문 스카프 상회 줄서기">
+            <section class="queue-card" id="queue-card" aria-label="선택한 상회의 장터 상태">
               <div><strong id="queue-heading">다음 장</strong><small id="queue-detail">개장 시간을 확인하고 있어요</small></div>
               <strong id="queue-countdown" role="timer" aria-live="off">--:--</strong>
             </section>
@@ -96,6 +116,7 @@
         <button class="glass navitem" id="profile" title="내 프로필" aria-label="내 프로필"><i data-icon="user"></i><span id="nickname">새내기 손님</span></button>
         <button class="glass icon-btn" id="sound" title="거래 소리" aria-label="거래 소리" aria-pressed="false"><i data-icon="mute"></i></button>
         <button class="glass icon-btn" id="fullscreen" title="전체화면" aria-label="전체화면" aria-pressed="false"><i data-icon="expand"></i></button>
+        <button class="glass navitem exit-market" id="exit-market" type="button" title="시작 화면으로 나가기" aria-label="시작 화면으로 나가기"><i data-icon="exit"></i><span>나가기</span></button>
       </nav>
     </header>
 

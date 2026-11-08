@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { DatabaseSync } from 'node:sqlite';
 import { Market, endpoint } from '../server/market.mjs';
-import { CHAT_FEED_MS, CHAT_MS, DEFAULT_LOOK, MARKET_DURATION, MARKET_INTERVAL, QUEUE_LEAD, RARE_SCARVES, START_MONEY, dailyRare, marketQueue, marketSession, roundCloth, roundStock } from '../game/catalog.mjs';
+import { CHAT_FEED_MS, CHAT_MS, DEFAULT_LOOK, LOBBY_CHAT_MS, MARKET_DURATION, MARKET_INTERVAL, QUEUE_LEAD, RARE_SCARVES, START_MONEY, dailyRare, marketQueue, marketSession, roundCloth, roundStock } from '../game/catalog.mjs';
 
 const midnight=Date.parse('2026-11-08T00:00:00+09:00');
 const start=marketSession(midnight).next;
@@ -187,6 +187,34 @@ test('chat is authenticated, transient, limited and visible to another guest', t
   assert.deepEqual(sync(sent.speech.expiresAt).peers[0].speech,sent.speech);
   assert.deepEqual(market.action({action:'sync',token:guest.token},midnight+8000).speech,sent.speech);
   assert.equal(sync(sent.speech.sentAt+CHAT_FEED_MS).peers[0].speech,undefined);
+});
+
+test('the lobby shares recent chat without leaking to the market or creating a market avatar', t=>{
+  const data=setup();t.after(data.close);
+  const market=data.create();
+  const guest=market.action({action:'join',room:'lobby'},start);
+  const waiting=market.action({action:'join',room:'lobby'},start);
+  const shopping=market.action({action:'join'},start);
+  assert.equal(shopping.online,1);
+  assert.deepEqual(shopping.peers,[]);
+  const say=(token,room,text,at)=>market.action({action:'chat',token,room,text},at);
+  say(shopping.token,'market','골목 인사',start+10);
+  const first=say(guest.token,'lobby','대기실 인사',start+20);
+  assert.equal(first.online,2);
+  assert.deepEqual(first.lobbyMessages.map(message=>message.text),['대기실 인사']);
+  assert.deepEqual(first.peers,[]);
+  assert.equal(say(guest.token,'market','빠른 전환',start+30).status,429);
+  assert.equal(market.action({action:'buy',token:guest.token,room:'lobby',item:'scarf'},start+50).status,409);
+  const entered=market.action({action:'sync',token:guest.token},start+100);
+  assert.equal(entered.online,2);
+  assert.equal(entered.lobbyMessages,undefined);
+  assert.equal(entered.speech,undefined);
+  const remaining=market.action({action:'sync',token:waiting.token,room:'lobby'},start+200);
+  assert.equal(remaining.online,1);
+  assert.deepEqual(remaining.lobbyMessages.map(message=>message.text),['대기실 인사']);
+  const returned=market.action({action:'sync',token:guest.token,room:'lobby'},start+LOBBY_CHAT_MS+20);
+  assert.equal(returned.player.id,guest.player.id);
+  assert.deepEqual(returned.lobbyMessages,[]);
 });
 
 test('profile saves purchased clothing and shares the look without sharing the basket', t=>{
