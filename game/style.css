@@ -294,6 +294,11 @@ canvas { position: absolute; inset: 0; display: block; width: 100%; height: 100%
 .cash, .stock-status { display: flex; align-items: center; gap: 4px; }
 .cash { color: var(--gold); }
 .cash b { font-size: 15px; }
+.pawn-wallet-hud {
+  display: flex; align-items: center; gap: 4px; padding: 5px 8px;
+  color: #d6ebbd; font-size: 11px; font-weight: 750; pointer-events: auto;
+}
+.pawn-wallet-hud i { width: 14px; height: 14px; }
 .stock-status { border-left: 1px solid #5f4735; padding-left: 9px; color: var(--muted); }
 .stock-status i { width: 13px; height: 13px; }
 .stock-status strong { color: var(--text); font-variant-numeric: tabular-nums; }
@@ -633,6 +638,30 @@ dialog::backdrop { background: #130e0bc9; backdrop-filter: blur(3px); }
 .rank-items { display: block; margin-top: 3px; color: var(--muted); font-size: 10px; word-break: keep-all; }
 .rank-num { color: var(--gold); font-weight: 900; white-space: nowrap; }
 .rank-num small { color: var(--muted); font-size: 10px; font-weight: 500; }
+.rank-personal { margin-top: 10px; }
+.pawn-wallet {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  padding: 9px 11px; border: 1px solid #7c8a55; border-radius: 8px; background: #313523; color: #e2efc7;
+  font-size: 13px; font-weight: 800;
+}
+.pawn-wallet span { display: flex; align-items: center; gap: 5px; }
+.pawn-wallet strong { white-space: nowrap; }
+.pawn-note { margin: 8px 0 11px; }
+#pawn-feedback { margin: 0 0 6px; padding: 0; }
+#pawn-feedback:empty { position: absolute; }
+.pawn-price-form {
+  display: flex; align-items: center; justify-content: end; gap: 5px;
+  margin: 5px 0 10px; color: #e9cfb4; font-size: 12px;
+}
+.pawn-price-form label, .pawn-price-form > span { white-space: nowrap; }
+.pawn-price-form input {
+  width: 105px; min-width: 0; min-height: 34px; padding: 4px 6px;
+  border: 1px solid #937153; border-radius: 5px; color: var(--text); background: #211812; font-size: 16px;
+}
+.pawn-price-form .primary, #pawn-content .item button { min-height: 34px; }
+.pawn-listing-action { padding: 4px 7px; white-space: nowrap; font-size: 11px; font-weight: 800; }
+.pawn-pages { display: flex; align-items: center; justify-content: center; gap: 8px; margin-top: 10px; font-size: 12px; }
+.pawn-pages button { padding: 6px 9px; }
 .profile-tabs { display: flex; gap: 6px; margin: 1px 0 13px; }
 .profile-tabs button { display: flex; align-items: center; gap: 5px; padding: 7px 9px; border: 1px solid #644838; border-radius: 7px; color: var(--muted); background: #39271d; font-size: 12px; font-weight: 800; }
 .profile-tabs button[aria-pressed=true] { color: #ffe6ac; border-color: #bd8a54; background: #574029; }

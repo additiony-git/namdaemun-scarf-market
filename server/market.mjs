@@ -1,4 +1,4 @@
-import { CHAT_FEED_MS, CHAT_LIMIT, CHAT_MS, EMPTY_STOCK, JUNK, LOBBY_CHAT_LIMIT, LOBBY_CHAT_MS, MAP, MARKET_CAPACITY, MARKET_EXIT_MS, MARKET_ITEMS, RARE_PICKUP_MS, RARE_SCARVES, ROUND_CURRENCY, SPAWN, chatText, fit, isNightMarket, lastMarketClose, marketRare, marketSession, niceName, normalizeLook, roundCloth, roundStock, seoulDay, seoulDayStart } from '../game/catalog.mjs';
+import { CHAT_FEED_MS, CHAT_LIMIT, CHAT_MS, EMPTY_STOCK, JUNK, LOBBY_CHAT_LIMIT, LOBBY_CHAT_MS, MAP, MARKET_CAPACITY, MARKET_EXIT_MS, MARKET_ITEMS, PAWN_LISTING_LIMIT, PAWN_MAX_PRICE, RARE_PICKUP_MS, RARE_SCARVES, ROUND_CURRENCY, SPAWN, chatText, fit, isNightMarket, lastMarketClose, marketRare, marketSession, niceName, normalizeLook, roundCloth, roundStock, seoulDay, seoulDayStart } from '../game/catalog.mjs';
 import { verifyGoogleCredential } from './google.mjs';
 
 const defaultName = '새내기 손님';
@@ -15,6 +15,9 @@ const loginSessionMs = 90 * 86_400_000;
 const minute = 60_000;
 const rareIds = RARE_SCARVES.map(item => item.id);
 const rareParams = rareIds.map(() => '?').join(', ');
+const pawnActions = new Set(['pawn-sell', 'pawn-list', 'pawn-buy', 'pawn-cancel']);
+const pawnPageSize = 20;
+const pawnItems = new Map([...MARKET_ITEMS, ...JUNK].map(item => [item.id, item]));
 const problem = (error, status = 400) => ({ error, status });
 const newToken = () => Array.from(crypto.getRandomValues(new Uint8Array(24)), n => n.toString(16).padStart(2, '0')).join('');
 const validToken = token => typeof token === 'string' && /^[0-9a-f]{48}$/.test(token);
@@ -36,6 +39,14 @@ export class Market {
     query('CREATE TABLE IF NOT EXISTS basket (player TEXT NOT NULL, item TEXT NOT NULL, qty INTEGER NOT NULL, updated INTEGER NOT NULL, PRIMARY KEY(player, item))');
     query('CREATE TABLE IF NOT EXISTS allowances (player TEXT PRIMARY KEY, round INTEGER NOT NULL)');
     query('CREATE TABLE IF NOT EXISTS round_currency (player TEXT NOT NULL, round INTEGER NOT NULL, PRIMARY KEY (player, round))');
+    query('CREATE TABLE IF NOT EXISTS market_balances (player TEXT NOT NULL, round INTEGER NOT NULL, balance INTEGER NOT NULL, PRIMARY KEY (player, round))');
+    query('CREATE TABLE IF NOT EXISTS pawn_wallets (player TEXT PRIMARY KEY, balance INTEGER NOT NULL, updated INTEGER NOT NULL)');
+    query('CREATE INDEX IF NOT EXISTS pawn_wallet_ranking ON pawn_wallets (balance DESC, updated, player)');
+    query('CREATE TABLE IF NOT EXISTS pawn_listings (id TEXT PRIMARY KEY, seller TEXT NOT NULL, item TEXT NOT NULL, price INTEGER NOT NULL, cost INTEGER NOT NULL, acquired INTEGER NOT NULL, listed INTEGER NOT NULL)');
+    query('CREATE INDEX IF NOT EXISTS pawn_listing_order ON pawn_listings (listed DESC, id)');
+    query('CREATE INDEX IF NOT EXISTS pawn_listings_by_seller ON pawn_listings (seller)');
+    // Only copies acquired above the market price need an explicit cost record.
+    query('CREATE TABLE IF NOT EXISTS pawn_costs (player TEXT NOT NULL, item TEXT NOT NULL, cost INTEGER NOT NULL, qty INTEGER NOT NULL, PRIMARY KEY (player, item, cost))');
     query('CREATE TABLE IF NOT EXISTS looks (player TEXT PRIMARY KEY, hat TEXT NOT NULL, coat TEXT NOT NULL, bag TEXT NOT NULL, scarf TEXT NOT NULL)');
     query('CREATE TABLE IF NOT EXISTS avatar_styles (player TEXT PRIMARY KEY, character TEXT NOT NULL)');
     query('CREATE TABLE IF NOT EXISTS character_outfits (player TEXT NOT NULL, character TEXT NOT NULL, hat TEXT NOT NULL, coat TEXT NOT NULL, bag TEXT NOT NULL, scarf TEXT NOT NULL, PRIMARY KEY (player, character))');
@@ -109,13 +120,28 @@ export class Market {
   collectionRanking() {
     return this.query('SELECT id, name, collected FROM players WHERE collected > 0 ORDER BY collected DESC, reached ASC, id ASC LIMIT 30');
   }
+  cashRanking(playerId = null) {
+    const rows = this.query(`SELECT p.id, p.name, w.balance AS balance
+      FROM pawn_wallets w JOIN players p ON p.id = w.player
+      WHERE w.balance > 0 ORDER BY w.balance DESC, w.updated, w.player LIMIT 30`);
+    const wallet = playerId && this.get('SELECT balance, updated FROM pawn_wallets WHERE player = ? AND balance > 0', playerId);
+    const rank = wallet ? this.get(`SELECT COUNT(*) + 1 AS rank FROM pawn_wallets
+      WHERE balance > ? OR (balance = ? AND (updated, player) < (?, ?))`,
+      wallet.balance, wallet.balance, wallet.updated, playerId).rank : null;
+    return { rows, rank, count: wallet?.balance ?? 0 };
+  }
   rareRanking(playerId = null) {
     const ranks = this.query(`SELECT id, name, collected, rank, items FROM (
       SELECT p.id, p.name, SUM(b.qty) AS collected,
         ROW_NUMBER() OVER (ORDER BY SUM(b.qty) DESC, MAX(b.updated), p.id) AS rank,
         json_group_array(json_object('item', b.item, 'qty', b.qty)) AS items
-      FROM basket b JOIN players p ON p.id = b.player
-      WHERE b.item IN (${rareParams}) AND b.qty > 0
+      FROM (
+        SELECT player, item, SUM(qty) AS qty, MAX(updated) AS updated
+        FROM (
+          SELECT player, item, qty, updated FROM basket WHERE item IN (${rareParams}) AND qty > 0
+          UNION ALL SELECT seller, item, 1, acquired FROM pawn_listings
+        ) GROUP BY player, item
+      ) b JOIN players p ON p.id = b.player
       GROUP BY p.id, p.name
     ) WHERE rank <= 30 OR id = ? ORDER BY rank`, ...rareIds, playerId);
     const personal = ranks.find(row => row.id === playerId);
@@ -139,19 +165,103 @@ export class Market {
     return { speech };
   }
   issueRoundCurrency(player, round) {
-    if (this.get('SELECT 1 FROM round_currency WHERE player = ? AND round = ?', player.id, round)) return;
-    const legacy = this.get('SELECT round FROM allowances WHERE player = ?', player.id);
-    if (!legacy && player.name === '새내기 상인' &&
-        !this.get('SELECT 1 FROM round_currency WHERE player = ? LIMIT 1', player.id)) {
+    const legacy = this.get('SELECT MAX(round) AS round FROM round_currency WHERE player = ?', player.id).round ??
+      this.get('SELECT round FROM allowances WHERE player = ?', player.id)?.round;
+    if (legacy == null && player.name === '새내기 상인') {
       this.query('UPDATE players SET name = ? WHERE id = ?', defaultName, player.id);
       player.name = defaultName;
     }
-    this.query('INSERT INTO round_currency (player, round) VALUES (?, ?)', player.id, round);
-    // The old allowance already applied to anyone who entered this round before the update.
-    if (legacy?.round === round) return;
-    this.query('UPDATE players SET cash = cash + ? WHERE id = ?', ROUND_CURRENCY, player.id);
-    player.cash += ROUND_CURRENCY;
-    return ROUND_CURRENCY;
+    // Preserve the active legacy allowance up to the new cap. Later rounds always start fresh.
+    const balance = legacy === round ? Math.max(0, Math.min(player.cash, ROUND_CURRENCY)) : ROUND_CURRENCY;
+    this.query('INSERT INTO market_balances VALUES (?, ?, ?)', player.id, round, balance);
+    return { balance, grant: legacy === round ? null : ROUND_CURRENCY };
+  }
+  pawnWallet(player) {
+    return this.get('SELECT balance FROM pawn_wallets WHERE player = ?', player)?.balance ?? 0;
+  }
+  creditPawn(player, amount, now) {
+    this.query(`INSERT INTO pawn_wallets VALUES (?, ?, ?)
+      ON CONFLICT(player) DO UPDATE SET balance = balance + excluded.balance, updated = excluded.updated`, player, amount, now);
+  }
+  rareCost(player, item, qty) {
+    const { quantity, lowest } = this.get('SELECT SUM(qty) AS quantity, MIN(cost) AS lowest FROM pawn_costs WHERE player = ? AND item = ?',
+      player, item.id);
+    return quantity === qty ? lowest : item.price;
+  }
+  receivePawnItem(player, item, cost, acquired) {
+    this.query(`INSERT INTO basket VALUES (?, ?, 1, ?)
+      ON CONFLICT(player, item) DO UPDATE SET qty = qty + 1, updated = MAX(updated, excluded.updated)`, player, item.id, acquired);
+    if (cost > item.price) {
+      this.query('INSERT INTO pawn_costs VALUES (?, ?, ?, 1) ON CONFLICT(player, item, cost) DO UPDATE SET qty = qty + 1',
+        player, item.id, cost);
+    }
+  }
+  removePawnItem(player, item, qty) {
+    if (qty > 1) {
+      this.query('UPDATE basket SET qty = qty - 1 WHERE player = ? AND item = ?', player, item);
+      return;
+    }
+    this.query('DELETE FROM basket WHERE player = ? AND item = ?', player, item);
+    this.query("UPDATE looks SET scarf = 'classic' WHERE player = ? AND scarf = ?", player, item);
+    this.query("UPDATE character_outfits SET scarf = 'classic' WHERE player = ? AND scarf = ?", player, item);
+  }
+  pawnView(player, page) {
+    const { count } = this.get('SELECT COUNT(*) AS count FROM pawn_listings WHERE seller <> ?', player);
+    const pages = Math.max(1, Math.ceil(count / pawnPageSize));
+    page = Number.isSafeInteger(page) ? Math.max(0, Math.min(page, pages - 1)) : 0;
+    const listings = this.query(`SELECT l.id, l.item, l.price, p.name
+      FROM pawn_listings l JOIN players p ON p.id = l.seller WHERE l.seller <> ?
+      ORDER BY l.listed DESC, l.id LIMIT ? OFFSET ?`, player, pawnPageSize, page * pawnPageSize);
+    const mine = this.query('SELECT id, item, price FROM pawn_listings WHERE seller = ? ORDER BY listed DESC, id', player);
+    const owned = this.query(`SELECT item, qty FROM basket WHERE player = ? AND qty > 0 AND item IN (${rareParams})`, player, ...rareIds);
+    const floors = Object.fromEntries(owned.map(({ item, qty }) => [item, this.rareCost(player, pawnItems.get(item), qty)]));
+    return { listings, mine, floors, page, pages };
+  }
+  pawnTrade(player, body, now) {
+    if (body.action === 'pawn-sell' || body.action === 'pawn-list') {
+      const item = pawnItems.get(body.item);
+      const listing = body.action === 'pawn-list';
+      if (!item || Boolean(item.rare) !== listing) return problem(listing ? '레어템만 판매 등록할 수 있어요.' : '일반템만 반값에 매입해요.');
+      const owned = this.get('SELECT qty, updated FROM basket WHERE player = ? AND item = ? AND qty > 0', player, item.id);
+      if (!owned) return problem('보유한 물건이 없어요.', 409);
+      if (!listing) {
+        const amount = Math.floor(item.price / 2);
+        this.removePawnItem(player, item.id, owned.qty);
+        this.creditPawn(player, amount, now);
+        return { event: item.name + ' 매각 · 현금 ' + amount.toLocaleString('ko-KR') + '원을 받았어요.' };
+      }
+      const cost = this.rareCost(player, item, owned.qty);
+      const { price } = body;
+      if (!Number.isSafeInteger(price) || price < cost || price > PAWN_MAX_PRICE) {
+        return problem('판매가는 ' + cost.toLocaleString('ko-KR') + '원부터 ' + PAWN_MAX_PRICE.toLocaleString('ko-KR') + '원까지 입력할 수 있어요.');
+      }
+      const { count } = this.get('SELECT COUNT(*) AS count FROM pawn_listings WHERE seller = ?', player);
+      if (count >= PAWN_LISTING_LIMIT) return problem('판매 등록은 한 번에 ' + PAWN_LISTING_LIMIT + '개까지 할 수 있어요.', 409);
+      this.removePawnItem(player, item.id, owned.qty);
+      if (cost > item.price) {
+        this.query('UPDATE pawn_costs SET qty = qty - 1 WHERE player = ? AND item = ? AND cost = ?', player, item.id, cost);
+        this.query('DELETE FROM pawn_costs WHERE player = ? AND item = ? AND cost = ? AND qty = 0', player, item.id, cost);
+      }
+      this.query('INSERT INTO pawn_listings VALUES (?, ?, ?, ?, ?, ?, ?)', crypto.randomUUID(), player, item.id, price, cost, owned.updated, now);
+      return { event: item.name + ' 판매를 등록했어요.' };
+    }
+    if (typeof body.listing !== 'string') return problem('판매 물건을 골라 주세요.');
+    const listing = this.get('SELECT * FROM pawn_listings WHERE id = ?', body.listing);
+    if (!listing) return problem('이미 팔렸거나 등록이 취소된 물건이에요.', 409);
+    const item = pawnItems.get(listing.item);
+    if (body.action === 'pawn-cancel') {
+      if (listing.seller !== player) return problem('내가 등록한 물건만 취소할 수 있어요.', 403);
+      this.query('DELETE FROM pawn_listings WHERE id = ?', listing.id);
+      this.receivePawnItem(player, item, listing.cost, listing.acquired);
+      return { event: item.name + ' 판매를 취소했어요.' };
+    }
+    if (listing.seller === player) return problem('내가 올린 물건은 구매할 수 없어요.', 409);
+    if (this.pawnWallet(player) < listing.price) return problem('전당포 현금이 부족해요.', 409);
+    this.query('DELETE FROM pawn_listings WHERE id = ?', listing.id);
+    this.creditPawn(player, -listing.price, now);
+    this.creditPawn(listing.seller, listing.price, now);
+    this.receivePawnItem(player, item, listing.price, now);
+    return { event: item.name + ' 전당포에서 구매했어요.', item: item.id };
   }
   lastClose(now) {
     const window = this.testWindow;
@@ -183,13 +293,18 @@ export class Market {
           : undefined,
       }));
   }
-  rarePickup(now, watching = false) {
+  rarePickup(now, watching = false, preferredPlayer) {
+    let latest;
     for (const person of this.people.values()) {
       if (person.room !== 'market' || !(person.pickup?.expiresAt > now)) continue;
-      const { item, sentAt, expiresAt } = person.pickup;
-      return watching ? { id: person.watchId, item, sentAt, expiresAt }
-        : { id: person.id, watchId: person.watchId, item, sentAt, expiresAt };
+      if (person.id === preferredPlayer) {
+        latest = person;
+        break;
+      }
+      if (!latest || person.pickup.sentAt > latest.pickup.sentAt) latest = person;
     }
+    if (!latest) return;
+    return watching ? { id: latest.watchId, ...latest.pickup } : { id: latest.id, watchId: latest.watchId, ...latest.pickup };
   }
   marketStatus(now, watch = false) {
     const lastClose = this.lastClose(now);
@@ -258,7 +373,8 @@ export class Market {
         this.query('INSERT INTO players (id, token, name, cash) VALUES (?, ?, ?, ?)', player.id, issued, player.name, player.cash);
       }
       if (!player) return problem('장터에 다시 입장해 주세요.', 401);
-      if (!['join', 'sync', 'rename', 'profile', 'buy', 'chat'].includes(action)) {
+      const pawnAction = pawnActions.has(action);
+      if (!pawnAction && !['join', 'sync', 'rename', 'profile', 'buy', 'chat'].includes(action)) {
         return problem('알 수 없는 거래입니다.');
       }
       const session = this.session(now);
@@ -295,9 +411,10 @@ export class Market {
           ? '이번 장이 마감됐어요. 다음 장에 다시 입장해 주세요.' : '시장에 입장한 뒤 이용해 주세요.', 409);
       }
       const room = admission ? 'lobby' : requestedRoom;
-      const currencyGrant = room === 'market' && open && !closing && connecting
-        ? this.issueRoundCurrency(player, round) ?? null
-        : null;
+      let allowance = open ? this.get('SELECT balance FROM market_balances WHERE player = ? AND round = ?', player.id, round) : null;
+      if (!allowance && room === 'market' && open && !closing && connecting) allowance = this.issueRoundCurrency(player, round);
+      let regionBalance = allowance?.balance ?? 0;
+      const currencyGrant = allowance?.grant ?? null;
       const x = fit(pos?.x, MAP.minX, MAP.maxX, previous.x);
       const z = fit(pos?.z, MAP.minZ, MAP.maxZ, previous.z);
       let event;
@@ -344,19 +461,28 @@ export class Market {
         if (!inventory.stock[item.id]) {
           return problem('다른 손님이 먼저 가져갔어요. 다음 장을 기다려 주세요.', 409);
         }
-        if (player.cash < item.price) {
+        if (regionBalance < item.price) {
           return problem(`지역화폐가 부족해요. 다음 장에 입장하면 ${ROUND_CURRENCY.toLocaleString('ko-KR')}원을 받아요.`, 409);
         }
         if (item.rare) pickup = { item: item.id, sentAt: now, expiresAt: now + RARE_PICKUP_MS };
         this.query('INSERT INTO cloth_sales VALUES (?, ?, 1) ON CONFLICT(round,item) DO UPDATE SET qty = qty + 1', round, item.id);
         this.query('DELETE FROM cloth_sales WHERE round < ?', round - 3 * 24 * 60);
-        this.query('UPDATE players SET cash = cash - ?, traded = ?, collected = collected + 1, reached = ? WHERE id = ?',
-          item.price, now, now, player.id);
+        this.query('UPDATE market_balances SET balance = balance - ? WHERE player = ? AND round = ?', item.price, player.id, round);
+        this.query('UPDATE players SET traded = ?, collected = collected + 1, reached = ? WHERE id = ?', now, now, player.id);
         this.query('INSERT INTO basket VALUES (?, ?, 1, ?) ON CONFLICT(player,item) DO UPDATE SET qty = qty + 1, updated = excluded.updated', player.id, item.id, now);
-        player.cash -= item.price;
+        regionBalance -= item.price;
         player.collected++;
         player.reached = now;
         event = item.name + ' 장바구니에 담았어요!';
+      } else if (pawnAction) {
+        const result = this.pawnTrade(player.id, body, now);
+        if (result.error) return result;
+        event = result.event;
+        if (result.item && room === 'market') pickup = { item: result.item, sentAt: now, expiresAt: now + RARE_PICKUP_MS };
+        if ((action === 'pawn-sell' || action === 'pawn-list') && look.scarf === body.item &&
+            !this.get('SELECT 1 FROM basket WHERE player = ? AND item = ? AND qty > 0', player.id, body.item)) {
+          look = { ...look, scarf: 'classic' };
+        }
       } else if (action === 'chat') {
         const text = chatText(body.text);
         if (!text || [...text].length > CHAT_LIMIT) return problem('채팅은 1~80자로 입력해 주세요.');
@@ -381,13 +507,15 @@ export class Market {
       return {
         token: issued, event, room, admission, currencyGrant, speech: speech?.sentAt + CHAT_FEED_MS > now ? speech : undefined, now, lastClose, ...this.inventory(now, session),
         marketOnline: this.marketCount(), marketCapacity: MARKET_CAPACITY, queuePosition, queueAdvanced,
-        player: { id: player.id, name: player.name, cash: player.cash, sold: player.sold, collected: player.collected, rank: myRank, look, outfits },
+        player: { id: player.id, name: player.name, cash: regionBalance, pawnCash: this.pawnWallet(player.id), sold: player.sold, collected: player.collected, rank: myRank, look, outfits },
         basket: this.query('SELECT item, qty, updated FROM basket WHERE player = ? ORDER BY updated DESC, item', player.id),
         ranking, rareRanking: body.includeRareRanking === true ? this.rareRanking(player.id) : undefined,
+        cashRanking: body.includeCashRanking === true ? this.cashRanking(player.id) : undefined,
+        pawn: pawnAction || body.includePawn === true ? this.pawnView(player.id, body.pawnPage) : undefined,
         online: roomPeople.length,
         lobbyMessages: room === 'lobby' ? this.lobbyMessages.slice() : undefined,
         crowd: room === 'lobby' && body.watch === true ? this.marketCrowd(now) : undefined,
-        rarePickup: room === 'market' || body.watch === true ? this.rarePickup(now, room === 'lobby') : undefined,
+        rarePickup: room === 'market' || body.watch === true ? this.rarePickup(now, room === 'lobby', pickup?.sentAt === now ? player.id : undefined) : undefined,
         peers: (room === 'market' ? roomPeople : []).filter(p => p.id !== player.id).slice(0, 35).map(({ id, name, x, z, speech, look }) =>
           ({ id, name, x, z, look, speech: speech?.sentAt + CHAT_FEED_MS > now ? speech : undefined })),
       };
@@ -416,6 +544,7 @@ export function endpoint(market, request, allowedOrigins = '', ip = 'local', pub
     const ranking = params.get('ranking');
     if (ranking === 'all') status.publicRanking = { kind: ranking, rows: market.collectionRanking() };
     if (ranking === 'rare') status.publicRanking = { kind: ranking, rows: market.rareRanking().rows };
+    if (ranking === 'cash') status.publicRanking = { kind: ranking, rows: market.cashRanking().rows };
     return send(status);
   }
   if (request.method !== 'POST') return send({ error: 'GET과 POST 요청만 받습니다.' }, 405);

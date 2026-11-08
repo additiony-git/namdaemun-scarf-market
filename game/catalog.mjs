@@ -1,4 +1,6 @@
 export const ROUND_CURRENCY = 5000;
+export const PAWN_MAX_PRICE = 999_999_999;
+export const PAWN_LISTING_LIMIT = 20;
 export const MARKET_CAPACITY = 16;
 export const CHAT_MS = 7_000;
 export const CHAT_FEED_MS = 20_000;

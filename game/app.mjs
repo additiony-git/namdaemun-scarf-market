@@ -1,4 +1,4 @@
-import { AVATAR_OPTIONS, CHAT_FEED_MS, CHAT_LIMIT, CHAT_MS, DEFAULT_LOOK, EMPTY_STOCK, FEATURED_MARKETS, JUNK, LINES, LOBBY_CHAT_LIMIT, LOBBY_CHAT_MS, MARKET_CAPACITY, MARKET_EXIT_MS, MARKET_ITEMS, RARE_PICKUP_MS, RARE_SCARVES, ROUND_CURRENCY, SCARVES, SPAWN, WAITING_LINES, avatarOptionsFor, chatText, isNightMarket, lastMarketClose, marketName, marketRare, marketSession, niceName, normalizeLook, roundCloth, roundStock, seoulDay, seoulDayStart } from './catalog.mjs';
+import { AVATAR_OPTIONS, CHAT_FEED_MS, CHAT_LIMIT, CHAT_MS, DEFAULT_LOOK, EMPTY_STOCK, FEATURED_MARKETS, JUNK, LINES, LOBBY_CHAT_LIMIT, LOBBY_CHAT_MS, MARKET_CAPACITY, MARKET_EXIT_MS, MARKET_ITEMS, PAWN_LISTING_LIMIT, PAWN_MAX_PRICE, RARE_PICKUP_MS, RARE_SCARVES, ROUND_CURRENCY, SCARVES, SPAWN, WAITING_LINES, avatarOptionsFor, chatText, isNightMarket, lastMarketClose, marketName, marketRare, marketSession, niceName, normalizeLook, roundCloth, roundStock, seoulDay, seoulDayStart } from './catalog.mjs';
 import { MARKET_API } from './config.mjs';
 import { createWorld, drawAvatarPreview } from './world.mjs';
 
@@ -46,7 +46,7 @@ const demoKey = 'ndm-demo-v1';
 const temporary=new Map();
 function read(key){try{return localStorage.getItem(key);}catch{return temporary.get(key)??null;}}
 function write(key,value){temporary.set(key,value);try{localStorage.setItem(key,value);}catch{/* keep this session playable */}}
-const blank = () => ({ id:'solo', name:'새내기 손님', cash:0, collected:0, rank:null });
+const blank = () => ({ id:'solo', name:'새내기 손님', cash:0, pawnCash:0, collected:0, rank:null });
 let googleSession=read(googleSessionKey), googleClientId='', loginRequired=false, authChecked=false, guestRequested=false;
 let token=googleSession||read(tokenKey), model, world, mode=endpoint?'loading':'solo', modal='', busy=false, timeOffset=0, misses=0, syncTimer;
 let enteredMarket=false, entryRequested=false, waitingPosition=0, cancelQueue=false, roomRevision=0;
@@ -59,6 +59,8 @@ let entranceSchedule;
 let muted=true, audioCtx, toastTimer, acting=false;
 let profileTab='avatar', profileFeedback='';
 let rankTab='all';
+let pawnTab='owned', pawnPage=0, pawnFeedback='';
+const pawnDrafts=new Map();
 const publicScores={};
 const profileDrafts=new Map();
 let nearby=false, shop=false, shopSignature='', inventory, feed, retryFeedAt=0, transitionRequested=0;
@@ -79,8 +81,9 @@ const loginNeeded=()=>loginRequired&&!googleSession;
 const closingNotice=$('market-closing');
 const roundEndedMessage='이번 장이 마감되어 시작 화면으로 돌아왔어요. 다음 장은 선착순으로 다시 입장해 주세요.';
 const activeRoom=()=>enteredMarket?'market':'lobby';
-const wantsRareRanking=()=>dialog.open&&modal==='rank'&&rankTab==='rare';
 const rankingView=()=>dialog.open&&modal==='rank'?rankTab:'';
+const wantsPawn=()=>dialog.open&&modal==='pawn';
+const extraViews=()=>({includeRareRanking:rankingView()==='rare',includeCashRanking:rankingView()==='cash',includePawn:wantsPawn(),pawnPage});
 const lobbyChatOpen=()=>!$('lobby-chat').hidden;
 const lobbySyncDelay=endpoint.startsWith('https://')?240_000:5_000;
 const marketSyncDelay=6_000;
@@ -100,10 +103,12 @@ function demo(action='sync', extra={}) {
   if(enteredMarket&&session.open&&data.round!==session.round){
     data.round=session.round;
     data.stock={...initial};
-    data.player.cash+=ROUND_CURRENCY;
+    data.player.cash=ROUND_CURRENCY;
     currencyGrant=ROUND_CURRENCY;
   }
   const p=data.player;
+  p.cash=Math.min(p.cash,ROUND_CURRENCY);
+  p.pawnCash??=0;
   p.collected=Math.max(p.collected??0,data.basket.reduce((total,item)=>total+item.qty,0));
   const stock={...initial};
   if(data.round===session.round)for(const item of roundCloth(session.slot))stock[item.id]=data.stock[item.id]??item.count;
@@ -143,16 +148,31 @@ function demo(action='sync', extra={}) {
     data.basket.sort((a,b)=>b.updated-a.updated);
     event=item.name+' 장바구니에 담았어요!';
   }
+  if(action==='pawn-sell'){
+    const item=products.find(i=>i.id===extra.item&&!i.rare);
+    const index=data.basket.findIndex(entry=>entry.item===item?.id&&entry.qty>0);
+    if(!item||index<0)throw Error('보유한 일반템이 없어요.');
+    const amount=Math.floor(item.price/2);
+    p.pawnCash+=amount;
+    if(--data.basket[index].qty===0){
+      data.basket.splice(index,1);
+      if(p.look?.scarf===item.id)p.look.scarf='classic';
+      for(const outfit of Object.values(p.outfits??{}))if(outfit.scarf===item.id)outfit.scarf='classic';
+    }
+    event=item.name+' 매각 · 현금 '+format(amount)+'원을 받았어요.';
+  }
   p.rank=p.collected?1:null;
   const rareItems=data.basket.filter(entry=>RARE_SCARVES.some(item=>item.id===entry.item));
   const rareCount=rareItems.reduce((sum,item)=>sum+item.qty,0);
   const rareRanking={rows:rareCount?[{id:p.id,name:p.name,collected:rareCount,items:rareItems}]:[],rank:rareCount?1:null,count:rareCount};
+  const cashRanking={rows:p.pawnCash?[{id:p.id,name:p.name,balance:p.pawnCash}]:[],rank:p.pawnCash?1:null,count:p.pawnCash};
   write(demoKey,JSON.stringify(data));
   const sold=roundCloth(session.slot).reduce((n,item)=>n+item.count-stock[item.id],0)+(rare?1-stock[rare]:0);
   const used=session.open?sold:500;
   const phase=Math.max(session.open?session.round:session.closes/60_000,seoulDayStart(now)/60_000);
   return {...data,...session,rare,stock:session.open?stock:closedStock,
-    online:1,peers:[],ranking:p.collected?[p]:[],rareRanking,now,revision:phase*1000+used,event,currencyGrant,rarePickup};
+    player:{...p,cash:session.open&&data.round===session.round?Math.min(p.cash,ROUND_CURRENCY):0},
+    online:1,peers:[],ranking:p.collected?[p]:[],rareRanking,cashRanking,now,revision:phase*1000+used,event,currencyGrant,rarePickup};
 }
 async function marketPost(body){
   const response=await fetch(endpoint,{
@@ -169,7 +189,7 @@ async function marketPost(body){
 async function request(action, extra={}, room=activeRoom()){
   const pos=room==='market'?world?.position()??SPAWN:SPAWN;
   if(room==='market'&&enteredMarket)marketPositionSent={...pos,at:Date.now()};
-  const data=await marketPost({action,token,room,watch:watchingMarket&&!feedWatching,pos,entryRound:room==='market'?entryRound:undefined,...extra});
+  const data=await marketPost({action,token,room,watch:watchingMarket&&!feedWatching,pos,entryRound:room==='market'?entryRound:undefined,...extraViews(),...extra});
   if(!data.player||!data.stock) throw Error('장터 서버 주소를 확인해 주세요.');
   if(data.token){token=data.token;write(tokenKey,token);}
   return data;
@@ -297,7 +317,7 @@ function setModel(data){
   }
   if(enteredMarket||watchingMarket)showRarePickup(data.rarePickup);
   render();
-  if(enteredMarket&&data.currencyGrant)toast('이번 장 지역화폐 '+format(data.currencyGrant)+'원을 받았어요.');
+  if(enteredMarket&&data.currencyGrant)toast('이번 장 지역화폐가 '+format(data.currencyGrant)+'원으로 갱신됐어요.');
 }
 function marketAvailability(snapshot=inventory){
   if(!snapshot)return 'loading';
@@ -653,7 +673,7 @@ function tick(){
   $('countdown').textContent=countdownText(deadline-now);
   $('countdown').title=openingTime.format(deadline)+' (한국 시간)';
 }
-function rankRows(list){
+function rankRows(list, unit){
   return list.map((p,i)=>{
     const items=p.items?.map(entry=>{
       const item=RARE_SCARVES.find(item=>item.id===entry.item);
@@ -661,7 +681,7 @@ function rankRows(list){
     }).filter(Boolean).join(' · ');
     return '<li class="rank-row"><span class="rank-pos">'+(i+1)+'</span><span class="rank-face">'+icon('user')+'</span>'+
       '<div class="rank-collector"><span class="rank-name">'+safe(p.name)+(p.id===model?.player.id?'<small>나</small>':'')+'</span>'+
-      (items?'<small class="rank-items">'+items+'</small>':'')+'</div><span class="rank-num">'+format(p.collected)+'<small> 개</small></span></li>';
+      (items?'<small class="rank-items">'+items+'</small>':'')+'</div><span class="rank-num">'+format(p.balance??p.collected)+'<small> '+unit+'</small></span></li>';
   }).join('');
 }
 function render(){
@@ -669,18 +689,20 @@ function render(){
   const p=model.player;
   $('nickname').textContent=p.name;
   $('balance').textContent=format(p.cash);
+  $('pawn-balance').textContent=format(p.pawnCash??0);
   status();tick();
   renderShop();
   if(dialog.open)renderModal();
 }
 function modalInfo(type){
   return ({
-    rank:['MARKET RANKING','쓸모없는 수집왕'],
+    rank:['MARKET RANKING','시장 랭킹'],
     profile:['MY MARKET PROFILE','내 프로필'],
+    pawn:['NAMDAEMUN PAWNSHOP','남대문 전당포'],
   })[type];
 }
 function open(type, tab='avatar'){
-  if(type==='profile'){
+  if(type==='profile'||type==='pawn'){
     if(loginNeeded()){void openGoogleLogin();return;}
     if(endpoint&&!model&&!token){guestRequested=true;queue(0);}
   }
@@ -688,6 +710,10 @@ function open(type, tab='avatar'){
   modal=type;
   profileTab=tab;
   rankTab='all';
+  pawnTab='owned';
+  pawnPage=0;
+  pawnFeedback='';
+  pawnDrafts.clear();
   profileFeedback='';
   $('modal-body').replaceChildren();
   world?.dir.clear();
@@ -695,7 +721,7 @@ function open(type, tab='avatar'){
   $('modal-kicker').textContent=label;$('modal-title').textContent=title;
   renderModal();
   if(!dialog.open)dialog.showModal();
-  if(type==='rank'&&endpoint)queue(0);
+  if(endpoint&&(type==='rank'||type==='pawn'))queue(0);
 }
 function itemPicture(item){
   return item.pattern
@@ -862,31 +888,112 @@ function renderProfile(body){
   $('profile-fields').disabled=acting||!['online','solo'].includes(mode);
   $('profile-feedback').textContent=profileFeedback;
 }
+function pawnOwnedRows(pawn, disabled){
+  if(!model.basket.length)return '<p class="empty">매대에서 산 물건이 여기에 표시돼요.</p>';
+  return model.basket.map(entry=>{
+    const item=products.find(product=>product.id===entry.item);
+    if(!item)return '';
+    const qty='보유 '+format(entry.qty)+'개';
+    if(!item.rare){
+      const amount=Math.floor(item.price/2);
+      return itemRow(item,qty,'<button class="primary" type="button" data-action="pawn-sell" data-item="'+item.id+'"'+disabled+'>'+format(amount)+'원에 매각</button>');
+    }
+    if(!pawn)return itemRow(item,qty,'');
+    const floor=pawn.floors[item.id];
+    if(!floor)return itemRow(item,qty,'');
+    const id='pawn-price-'+item.id;
+    const value=pawnDrafts.get(item.id)??floor;
+    return itemRow(item,qty+' · 최소 '+format(floor)+'원','')+
+      '<form class="pawn-price-form" data-pawn-item="'+item.id+'"><label for="'+id+'">판매가</label>'+
+      '<input type="number" inputmode="numeric" id="'+id+'" name="price" min="'+floor+'" max="'+PAWN_MAX_PRICE+'" step="1" value="'+safe(value)+'" required'+disabled+'>'+
+      '<span>원</span><button class="primary" type="submit"'+disabled+'>판매 등록</button></form>';
+  }).join('');
+}
+function pawnListingRows(pawn, canTrade){
+  const mine=pawnTab==='mine';
+  const listings=mine?pawn.mine:pawn.listings;
+  const rows=listings.map(listing=>{
+    const item=RARE_SCARVES.find(rare=>rare.id===listing.item);
+    if(!item)return '';
+    const affordable=(model.player.pawnCash??0)>=listing.price;
+    const disabled=!canTrade||(!mine&&!affordable)?' disabled':'';
+    const detail=format(listing.price)+'원'+(mine?'':' · '+safe(listing.name));
+    return itemRow(item,detail,'<button class="'+(mine?'glass':'primary')+' pawn-listing-action" type="button" data-pawn-action="'+
+      (mine?'pawn-cancel':'pawn-buy')+'" data-pawn-listing="'+safe(listing.id)+'"'+disabled+'>'+
+      (mine?'등록 취소':affordable?'현금 구매':'현금 부족')+'</button>');
+  }).join('');
+  const pagination=!mine&&pawn.pages>1
+    ? '<div class="pawn-pages"><button class="glass" type="button" data-pawn-page="'+(pawn.page-1)+'"'+(!pawn.page||acting?' disabled':'')+'>이전</button>'+
+      '<span>'+(pawn.page+1)+' / '+pawn.pages+'</span><button class="glass" type="button" data-pawn-page="'+(pawn.page+1)+'"'+(pawn.page+1===pawn.pages||acting?' disabled':'')+'>다음</button></div>'
+    : '';
+  return (rows||'<p class="empty">'+(mine?'등록한 레어템이 없어요.':'다른 손님이 등록한 레어템이 없어요.')+'</p>')+pagination;
+}
+function renderPawn(body){
+  if(!$('pawn-content')){
+    body.innerHTML='<div class="pawn-wallet"><span>'+icon('wallet')+' 전당포 현금</span><strong id="pawn-modal-balance">–</strong></div>'+
+      '<p class="modal-note pawn-note">일반템은 구매가의 절반에 매각할 수 있어요. 현금은 다음 장에도 남아요.</p>'+
+      '<div class="profile-tabs" role="group" aria-label="전당포 메뉴">'+
+      '<button type="button" data-pawn-tab="owned">내 물건</button><button type="button" data-pawn-tab="listings">레어 장터</button>'+
+      '<button type="button" data-pawn-tab="mine">내 판매</button></div>'+
+      '<p id="pawn-feedback" class="dialog-feedback" role="status"></p><div id="pawn-content"></div>';
+    icons(body);
+  }
+  for(const button of body.querySelectorAll('[data-pawn-tab]')){
+    button.setAttribute('aria-pressed',String(button.dataset.pawnTab===pawnTab));
+  }
+  setText('pawn-feedback',pawnFeedback);
+  if(!model){$('pawn-content').innerHTML='<p class="empty">전당포에 연결하고 있어요.</p>';return;}
+  setText('pawn-modal-balance',format(model.player.pawnCash??0)+'원');
+  const content=$('pawn-content');
+  const canTrade=!acting&&['online','solo'].includes(mode);
+  const pawn=model.pawn;
+  const stamp=JSON.stringify([pawnTab,canTrade,acting,model.player.pawnCash,model.basket,pawn]);
+  if(content.dataset.stamp===stamp)return;
+  content.dataset.stamp=stamp;
+  if(pawnTab==='owned'){
+    const note=pawn?'<p class="modal-note">레어템은 구매가 이상에 등록할 수 있어요. 판매 중인 물건은 내 판매에서 취소할 수 있어요.</p>':'';
+    content.innerHTML=note+pawnOwnedRows(pawn,canTrade?'':' disabled');
+  }else if(pawn){
+    const note=pawnTab==='mine'?'판매가 끝나면 현금이 바로 들어와요. 동시에 '+PAWN_LISTING_LIMIT+'개까지 등록할 수 있어요.':'다른 손님이 올린 레어템을 전당포 현금으로 구매해요.';
+    content.innerHTML='<p class="modal-note">'+note+'</p>'+pawnListingRows(pawn,canTrade);
+  }else{
+    content.innerHTML='<p class="empty">'+(endpoint?'레어 장터를 불러오고 있어요.':'레어 거래는 온라인 장터에서 할 수 있어요.')+'</p>';
+  }
+}
+const rankCategories={
+  all:{unit:'개',note:'매대에서 구매한 누적 수량으로 단골 순위를 매겨요.',empty:'아직 매대 구매 기록이 없어요.'},
+  rare:{unit:'개',note:'보유한 레어템 수량으로 순위를 매겨요. 등록 중인 레어템은 팔릴 때까지 판매자 보유로 집계해요.',empty:'아직 레어템을 보유한 손님이 없어요.'},
+  cash:{unit:'원',note:'현재 보유한 전당포 현금으로 순위를 매겨요.',empty:'아직 전당포 현금을 보유한 손님이 없어요.'},
+};
 function renderModal(){
   const body=$('modal-body');
   if(modal==='profile'){renderProfile(body);return;}
+  if(modal==='pawn'){renderPawn(body);return;}
   if(modal!=='rank')return;
   if(!$('rank-content')){
     body.innerHTML='<div class="profile-tabs" role="group" aria-label="랭킹 종류">'+
-      '<button type="button" data-rank-tab="all">전체 수집</button>'+
-      '<button type="button" data-rank-tab="rare">레어템</button></div><div id="rank-content"></div>';
+      '<button type="button" data-rank-tab="all">단골</button>'+
+      '<button type="button" data-rank-tab="rare">레어템 보유순</button>'+
+      '<button type="button" data-rank-tab="cash">현금부자</button></div><div id="rank-content"></div>';
   }
   for(const button of body.querySelectorAll('[data-rank-tab]')){
     button.setAttribute('aria-pressed',String(button.dataset.rankTab===rankTab));
   }
   const content=$('rank-content');
-  const rare=rankTab==='rare';
-  const personalScores=rare?model?.rareRanking:model&&{rows:model.ranking,rank:model.player.rank,count:model.player.collected};
+  const personalScores=model&&({
+    rare:model.rareRanking,
+    cash:model.cashRanking,
+    all:{rows:model.ranking,rank:model.player.rank,count:model.player.collected},
+  })[rankTab];
   const scores=personalScores??publicScores[rankTab];
   if(!scores){
     content.innerHTML='<p class="empty">'+(mode==='retry'?'장터에 다시 연결하고 있어요.':'랭킹을 불러오고 있어요.')+'</p>';
     return;
   }
-  const basis=rare?'보유한 레어템 수량으로 순위를 매겨요.':'구매한 물건 1개당 수집 기록이 1개 늘어요.';
-  const empty=rare?'아직 레어템을 보유한 손님이 없어요.':'아직 수집 기록이 없어요. 첫 수집왕에 도전하세요!';
-  content.innerHTML='<p class="modal-note">'+(mode==='solo'?'혼자 체험 기록입니다. ':'장터 상위 30명 · ')+basis+' 동점이면 해당 수량에 먼저 도달한 손님이 앞서요.</p>'+
-    (scores.rows.length?'<ol class="rank-list">'+rankRows(scores.rows)+'</ol>':'<div class="empty">'+empty+'</div>')+
-    (scores.rank?'<p class="modal-note" style="margin-top:10px">내 순위: '+scores.rank+'위 · '+format(scores.count)+'개</p>':'');
+  const {unit,note,empty}=rankCategories[rankTab];
+  content.innerHTML='<p class="modal-note">'+(mode==='solo'?'혼자 체험 기록 · ':'상위 30명 · ')+note+'</p>'+
+    (scores.rows.length?'<ol class="rank-list">'+rankRows(scores.rows,unit)+'</ol>':'<div class="empty">'+empty+'</div>')+
+    (scores.rank?'<p class="modal-note rank-personal">내 순위 '+scores.rank+'위 · '+format(scores.count)+unit+'</p>':'');
   icons(content);
 }
 function renderSpectator(rotateVendor=false){
@@ -1188,7 +1295,7 @@ async function connect(){
   const room=requestingEntry?'market':activeRoom(), revision=roomRevision;
   const lobby=lobbyChatOpen(), ranking=rankingView();
   queueAdvancePending=false;
-  const extra={cancelQueue,includeRareRanking:wantsRareRanking()};
+  const extra={cancelQueue,...extraViews()};
   if(requestingEntry&&!watchingMarket)extra.watch=true;
   busy=true;
   let retryDelay;
@@ -1265,35 +1372,42 @@ async function connect(){
     if(enteredMarket)next=scheduleAt(Date.now()+timeOffset).open?marketSyncDelay:idleMarketSyncDelay;
     else if((entryRequested||watchingMarket||lobbyChatOpen())&&feed?.readyState!==WebSocket.OPEN)next=watchSyncDelay;
     if(waitingPosition&&queueAdvancePending&&!retryDelay)next=0;
-    if(!extra.includeRareRanking&&wantsRareRanking()&&!retryDelay)next=0;
+    if(wantsPawn())next=Math.min(next,10_000);
+    if(!retryDelay&&((wantsPawn()&&(!extra.includePawn||extra.pawnPage!==pawnPage))||
+        (rankingView()==='rare'&&!extra.includeRareRanking)||(rankingView()==='cash'&&!extra.includeCashRanking)))next=0;
     if(mode==='anonymous'&&((!lobby&&lobbyChatOpen())||(rankingView()&&rankingView()!==ranking)))next=0;
     queue(revision===roomRevision?(retryDelay??next):0);
   }
 }
 async function act(action, extra){
-  if((!enteredMarket&&action!=='profile')||acting)return;
+  const pawnAction=action.startsWith('pawn-');
+  if((!enteredMarket&&action!=='profile'&&!pawnAction)||acting)return;
   if(!['online','solo'].includes(mode)){toast('장터에 연결한 뒤 다시 시도해 주세요.');return;}
+  if(pawnAction)pawnFeedback='';
   acting=true;
   const revision=roomRevision, room=activeRoom();
   let claimed=false;
   renderShop();
-  if(dialog.open&&modal==='profile')renderModal();
+  if(dialog.open&&(modal==='profile'||modal==='pawn'))renderModal();
   try{
     claimed=await claimRoomRequest(revision);
     if(!claimed)return;
     const result=mode==='solo'?demo(action,extra):await request(action,extra,room);
     if(revision!==roomRevision)return;
     if(result.event){
-      if(action==='profile'&&dialog.open&&modal==='profile')profileFeedback=result.event;
+      if(pawnAction&&dialog.open&&modal==='pawn')pawnFeedback=result.event;
+      else if(action==='profile'&&dialog.open&&modal==='profile')profileFeedback=result.event;
       else if(shop&&action==='buy')$('shop-feedback').textContent=result.event;
       else toast(result.event);
     }
+    if(action==='pawn-list')pawnDrafts.delete(extra.item);
     if(action==='buy'){line();chime();}
     setModel(result);
     if(action==='profile'&&$('new-name'))$('new-name').value=result.player.name;
   }catch(error){
     if(revision!==roomRevision)return;
-    if(action==='profile'&&dialog.open&&modal==='profile')profileFeedback=error.message;
+    if(pawnAction&&dialog.open&&modal==='pawn')pawnFeedback=error.message;
+    else if(action==='profile'&&dialog.open&&modal==='profile')profileFeedback=error.message;
     else if(shop&&action==='buy')$('shop-feedback').textContent=error.message;
     else toast(error.message);
     if(mode==='online')queue(250);
@@ -1312,6 +1426,9 @@ document.addEventListener('click', e=>{
   const category=e.target.closest('[data-filter]');
   const tab=e.target.closest('[data-profile-tab]');
   const rankingTab=e.target.closest('[data-rank-tab]');
+  const pawnChoice=e.target.closest('[data-pawn-tab]');
+  const pawnListing=e.target.closest('[data-pawn-action]');
+  const pawnPagination=e.target.closest('[data-pawn-page]');
   if(trade){
     if(nearby||!$('world-error').hidden)openShop();
     else toast('스카프 아저씨 앞으로 다가가 보세요.');
@@ -1331,6 +1448,16 @@ document.addEventListener('click', e=>{
     renderModal();
     if(endpoint)queue(0);
   }
+  if(pawnChoice&&pawnTab!==pawnChoice.dataset.pawnTab){
+    pawnTab=pawnChoice.dataset.pawnTab;
+    renderModal();
+    if(endpoint)queue(0);
+  }
+  if(pawnListing)void act(pawnListing.dataset.pawnAction,{listing:pawnListing.dataset.pawnListing});
+  if(pawnPagination){
+    pawnPage=Number(pawnPagination.dataset.pawnPage);
+    queue(0);
+  }
   if(e.target.closest('#logout-google'))void signOut();
   if(e.target.closest('#rotate-avatar')){
     const canvas=$('avatar-preview');
@@ -1347,12 +1474,18 @@ document.addEventListener('change',e=>{
   }
 });
 document.addEventListener('input',e=>{
+  const pawnForm=e.target.closest('.pawn-price-form');
+  if(pawnForm)pawnDrafts.set(pawnForm.dataset.pawnItem,e.target.value);
   if(e.target.closest('#profile-form')){
     profileFeedback='';
     $('profile-feedback').textContent='';
   }
 });
 document.addEventListener('submit', e=>{
+  if(e.target.matches('.pawn-price-form')){
+    e.preventDefault();
+    void act('pawn-list',{item:e.target.dataset.pawnItem,price:e.target.elements.price.valueAsNumber});
+  }
   if(e.target.id==='profile-form'){
     e.preventDefault();
     void act('profile',{name:$('new-name').value,look:selectedLook(e.target)});
@@ -1360,7 +1493,7 @@ document.addEventListener('submit', e=>{
   if(e.target.id==='chat-form'){e.preventDefault();void sendChat('market');}
   if(e.target.id==='lobby-chat-form'){e.preventDefault();void sendChat('lobby');}
 });
-for(const id of ['bag-nav','lobby-bag'])$(id).onclick=()=>open('profile','bag');
+for(const id of ['bag-nav','lobby-bag','pawn-marker','pawn-hud'])$(id).onclick=()=>open('pawn');
 for(const id of ['rank-nav','lobby-rank'])$(id).onclick=()=>open('rank');
 for(const id of ['profile','lobby-profile'])$(id).onclick=()=>open('profile');
 $('close-modal').onclick=()=>dialog.close();
@@ -1451,7 +1584,7 @@ function showWorldError(){
   }
 }
 try{
-  world=createWorld($('world'),{scarves:$('scarf-marker'),speech:$('vendor-speech'),watchSpeech:$('watch-speech'),rare:$('rare-pickups')},isNear=>{
+  world=createWorld($('world'),{scarves:$('scarf-marker'),pawn:$('pawn-marker'),speech:$('vendor-speech'),watchSpeech:$('watch-speech'),rare:$('rare-pickups')},isNear=>{
     nearby=isNear;
     if(isNear){
       openShop();

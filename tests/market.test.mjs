@@ -68,7 +68,7 @@ test('each round has distinct goods and rejects purchases from the other rounds'
   }
 });
 
-test('entrants receive one currency grant per open round and keep unspent funds', t=>{
+test('entrants receive 5,000 regional currency per round and keep only that round’s balance on reentry', t=>{
   const data=setup();t.after(data.close);
   const market=data.create();
   const guest=market.action({action:'join',room:'lobby'},start-1);
@@ -84,7 +84,7 @@ test('entrants receive one currency grant per open round and keep unspent funds'
   assert.equal(reentry.player.cash,4300);
   const second=sync('market',evening);
   assert.equal(second.currencyGrant,5000);
-  assert.equal(second.player.cash,9300);
+  assert.equal(second.player.cash,5000);
 });
 
 test('returning from a test round keeps the regular round grant and respects older allowances', t=>{
@@ -99,7 +99,66 @@ test('returning from a test round keeps the regular round grant and respects old
   assert.equal(sync(from).currencyGrant,5000);
   const returned=sync(until);
   assert.equal(returned.currencyGrant,null);
-  assert.equal(returned.player.cash,6200);
+  assert.equal(returned.player.cash,1200);
+});
+
+test('pawn transactions preserve balances, acquisition prices and public rankings across rounds and restarts', async t=>{
+  const data=setup();t.after(data.close);
+  let market=data.create();
+  const enter=()=>market.action({action:'join'},start);
+  const seller=enter(), buyer=enter(), secondBuyer=enter();
+  const rare=marketRare(marketSession(start));
+  const action=(guest,action,extra={},at=start+5000,room='lobby')=>
+    market.action({action,token:guest.token,room,...extra},at);
+  const view=guest=>action(guest,'sync',{includePawn:true,includeRareRanking:true,includeCashRanking:true});
+  assert.equal(action(seller,'buy',{item:rare.id},start+500,'market').basket[0].item,rare.id);
+  assert.equal(action(seller,'pawn-sell',{item:rare.id}).status,400);
+  assert.equal(action(seller,'pawn-list',{item:rare.id,price:rare.price-1}).status,400);
+
+  for(const [shopper,item] of [[buyer,'amber-paisley'],[secondBuyer,'jade-wave']]){
+    for(let i=0;i<4;i++)assert.ok(action(shopper,'buy',{item},start+500+i*400,'market').event);
+    for(let i=0;i<4;i++)assert.ok(action(shopper,'pawn-sell',{item}).event);
+    const state=view(shopper);
+    assert.equal(state.basket.length,0);
+    assert.equal(state.player.collected,4);
+    assert.equal(state.player.pawnCash,item==='amber-paisley'?1800:1600);
+    assert.equal(action(shopper,'pawn-sell',{item}).status,409);
+  }
+
+  const ask=1500;
+  const listed=action(seller,'pawn-list',{item:rare.id,price:ask});
+  const listing=listed.pawn.mine[0].id;
+  assert.equal(listed.basket.length,0);
+  assert.equal(view(seller).rareRanking.count,1);
+  assert.equal(action(seller,'pawn-buy',{listing}).status,409);
+  assert.equal(action(buyer,'pawn-cancel',{listing}).status,403);
+  assert.equal(view(buyer).pawn.listings[0].price,ask);
+  const results=await Promise.all([buyer,secondBuyer].map(shopper=>
+    Promise.resolve().then(()=>action(shopper,'pawn-buy',{listing}))));
+  assert.equal(results[0].player.pawnCash,300);
+  assert.equal(results[0].player.collected,4);
+  assert.equal(results[0].basket[0].item,rare.id);
+  assert.equal(results[1].status,409);
+  assert.equal(view(secondBuyer).player.pawnCash,1600);
+  assert.equal(view(seller).rareRanking.count,0);
+  assert.equal(view(buyer).rareRanking.count,1);
+  assert.equal(view(seller).player.pawnCash,ask);
+  assert.equal(action(buyer,'pawn-list',{item:rare.id,price:ask-1}).status,400);
+  const resale=action(buyer,'pawn-list',{item:rare.id,price:1800}).pawn.mine[0].id;
+  const cancelled=action(buyer,'pawn-cancel',{listing:resale});
+  assert.equal(cancelled.pawn.floors[rare.id],ask);
+  assert.equal(cancelled.basket[0].qty,1);
+  assert.equal(action(secondBuyer,'pawn-buy',{listing:resale}).status,409);
+
+  market=data.create();
+  const newRound=action(buyer,'sync',{includeCashRanking:true},evening,'market');
+  assert.equal(newRound.player.cash,ROUND_CURRENCY);
+  assert.equal(newRound.player.pawnCash,300);
+  const response=await endpoint(market,new Request('https://market.example/api/market?ranking=cash'));
+  const published=(await response.json()).publicRanking;
+  assert.equal(published.kind,'cash');
+  assert.deepEqual(published.rows.map(row=>row.balance),[1600,1500,300]);
+  assert.equal(newRound.cashRanking.rank,3);
 });
 
 test('the last seat admits one contender and the other can watch inventory without buying', async t=>{
@@ -282,16 +341,16 @@ test('two shoppers share one limited stock; only the first gets the last item, t
   assert.equal(market.action({action:'buy',item:'scarf',token:b},closing).status,409);
   const closed=market.action({action:'sync',token:b},closing);
   assert.ok(closed.revision>contenders[0].revision);
-  assert.equal(closed.player.cash,ROUND_CURRENCY-450);
+  assert.equal(closed.player.cash,0);
   assert.equal(closed.stock.scarf,0);
   const next=closed.next;
   const refill=market.action({action:'sync',token:b},next);
   const rare=marketRare(marketSession(next));
   assert.equal(next,start+3_600_000);
   assert.deepEqual(refill.stock,{...roundStock(2),...(rare?{[rare.id]:1}:{})});
-  assert.equal(refill.player.cash,2*ROUND_CURRENCY-450);
+  assert.equal(refill.player.cash,ROUND_CURRENCY);
   market.action({action:'buy',item:'ink-edge',token:b},next+400);
-  assert.equal(market.action({action:'sync',token:b},next+800).player.cash,2*ROUND_CURRENCY-450-430);
+  assert.equal(market.action({action:'sync',token:b},next+800).player.cash,ROUND_CURRENCY-430);
 });
 
 test('preparation pauses junk sales while preserving earlier baskets and rank ties', t=>{
@@ -411,6 +470,8 @@ test('Google sign-in connects existing guest records and restores the same playe
   const legacy=data.create();
   const guest=legacy.action({action:'join'},start);
   legacy.action({action:'buy',token:guest.token,item:'scarf'},start+500);
+  legacy.action({action:'buy',token:guest.token,item:'hanky'},start+900);
+  legacy.action({action:'pawn-sell',token:guest.token,item:'hanky',room:'lobby'},start+1000);
   const clientId='test.apps.googleusercontent.com';
   const market=data.create(undefined,clientId);
   const origin='https://market.setting41.com';
@@ -449,7 +510,7 @@ test('Google sign-in connects existing guest records and restores the same playe
   assert.notEqual(first.token,second.token);
   const profile=await (await post({action:'sync',token:second.token,room:'lobby'})).json();
   assert.equal(profile.player.id,guest.player.id);
-  assert.equal(profile.player.cash,ROUND_CURRENCY-700);
+  assert.equal(profile.player.pawnCash,225);
   assert.equal(profile.player.rank,1);
   assert.equal(profile.basket[0].item,'scarf');
   assert.equal((await post({action:'logout',token:first.token})).status,200);
@@ -660,7 +721,7 @@ test('featured rounds stock distinct rare scarves and only the first shopper get
   market.action({action:'sync',token:first.token},third);
   market.action({action:'sync',token:second.token},third);
   const purchased=market.action({action:'buy',token:first.token,item:rare.id},third+100);
-  assert.equal(purchased.player.cash,3*ROUND_CURRENCY-rare.price);
+  assert.equal(purchased.player.cash,ROUND_CURRENCY-rare.price);
   assert.equal(purchased.basket[0].item,rare.id);
   assert.equal(count(purchased),0);
   assert.equal(count(data.create().inventory(third+100)),0);

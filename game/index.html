@@ -20,7 +20,7 @@
       </picture>
       <nav class="entrance-nav" aria-label="시작 화면 메뉴">
         <button class="glass navitem" type="button" id="lobby-profile"><i data-icon="user"></i><span>내 프로필</span></button>
-        <button class="glass navitem" type="button" id="lobby-bag"><i data-icon="bag"></i><span>장바구니</span></button>
+        <button class="glass navitem" type="button" id="lobby-bag"><i data-icon="wallet"></i><span>전당포</span></button>
         <button class="glass navitem" type="button" id="lobby-rank"><i data-icon="trophy"></i><span>랭킹</span></button>
         <button class="glass navitem" type="button" id="lobby-chat-toggle" aria-controls="lobby-chat" aria-expanded="false"><i data-icon="message"></i><span>대기실 채팅</span></button>
       </nav>
@@ -166,6 +166,7 @@
     <div id="market-ui" hidden>
     <div id="world-markers" class="markers">
       <button id="scarf-marker" class="marker" data-trade="scarves"><span>✦</span> 스카프 매대</button>
+      <button id="pawn-marker" class="marker" type="button" hidden><span aria-hidden="true">◈</span> 전당포</button>
     </div>
     <div id="soldout-scene" class="soldout-scene" aria-hidden="true" hidden>
       <div class="soldout-rays"></div>
@@ -201,7 +202,7 @@
       </div>
       <div class="location"><i data-icon="pin"></i> 남대문시장 <span> / </span> 스카프 골목</div>
       <nav class="nav" aria-label="게임 메뉴">
-        <button class="glass navitem" id="bag-nav" title="내 장바구니" aria-label="내 장바구니"><i data-icon="bag"></i><span>장바구니</span></button>
+        <button class="glass navitem" id="bag-nav" title="전당포" aria-label="전당포"><i data-icon="wallet"></i><span>전당포</span></button>
         <button class="glass navitem" id="rank-nav" title="랭킹" aria-label="랭킹"><i data-icon="trophy"></i><span>랭킹</span></button>
         <button class="glass navitem" id="profile" title="내 프로필" aria-label="내 프로필"><i data-icon="user"></i><span id="nickname">새내기 손님</span></button>
         <button class="glass icon-btn" id="sound" type="button" title="시장 소리 켜기" aria-label="시장 소리" aria-pressed="false"><i data-icon="mute" aria-hidden="true"></i></button>
@@ -216,6 +217,7 @@
         <div class="cash"><i data-icon="coin"></i><small>지역화폐</small><b id="balance">–</b><small>원</small></div>
         <div class="stock-status"><i data-icon="clock"></i><span id="clock-label">다음 장</span><strong id="countdown">--:--</strong></div>
       </div>
+      <button class="glass pawn-wallet-hud" type="button" id="pawn-hud"><i data-icon="wallet" aria-hidden="true"></i> 전당포 현금 <b id="pawn-balance">0</b>원</button>
     </div>
     <div class="chat-feed" id="chat-feed" role="log" aria-label="같은 골목의 최근 채팅"></div>
 

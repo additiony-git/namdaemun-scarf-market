@@ -35,7 +35,7 @@ export class MarketRoom extends DurableObject {
         const key = [round, open, revision, lastClose, marketOnline].join(':');
         const changed = Number.isFinite(revision) && key !== this.lastMarketStatus;
         if (changed) this.lastMarketStatus = key;
-        const pickup = action === 'buy' && rarePickup?.id === player.id && rarePickup.sentAt === now ? rarePickup : null;
+        const pickup = (action === 'buy' || action === 'pawn-buy') && rarePickup?.id === player.id && rarePickup.sentAt === now ? rarePickup : null;
         const checkCrowd = changed || pickup || (room === 'market' &&
           (action === 'chat' || action === 'profile' || now - (this.lastCrowdAt ?? 0) >= 2000));
         if (!changed && action !== 'chat' && !checkCrowd && !queueAdvanced) return;
