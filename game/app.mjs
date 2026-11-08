@@ -910,6 +910,7 @@ function toggleMarketSound(){
     icons(button);
   }
   syncMarketSound();
+  if(!muted)chime();
 }
 function chime(){
   if(muted)return;
