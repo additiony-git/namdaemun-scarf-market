@@ -19,7 +19,7 @@ button { cursor: pointer; color: inherit; border: 0; background: none; }
 button:disabled { cursor: not-allowed; opacity: .48; }
 button:focus-visible, input:focus-visible { outline: 2px solid var(--gold); outline-offset: 3px; }
 button { -webkit-tap-highlight-color: transparent; }
-i[data-icon] { display: inline-flex; flex: none; width: 17px; height: 17px; vertical-align: middle; }
+i[data-icon] { display: inline-flex; flex: none; width: 17px; height: 17px; vertical-align: middle; pointer-events: none; }
 i svg { width: 100%; height: 100%; }
 
 .stage { position: relative; isolation: isolate; width: 100%; height: 100%; height: 100dvh; overflow: hidden; }
@@ -132,17 +132,20 @@ canvas { position: absolute; inset: 0; display: block; width: 100%; height: 100%
 .watch-soldout { color: #e6a68b; }
 #watch-ui { position: absolute; z-index: 4; inset: 0; pointer-events: none; }
 #watch-ui button, .watch-panel { pointer-events: auto; }
-.watch-header { position: absolute; top: var(--top); left: var(--edge); right: var(--edge); display: flex; justify-content: space-between; align-items: flex-start; gap: 6px; }
+.watch-top { position: absolute; top: var(--top); left: var(--edge); right: var(--edge); }
+.watch-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 6px; }
 .watch-brand { display: grid; gap: 2px; padding: 8px 11px; }
 .watch-brand span { color: #f8cc75; font-size: 10px; font-weight: 900; }
 .watch-brand strong { font-size: 15px; }
-.watch-brand small, .watch-queue small { color: #ebd4b8; font-size: 11px; }
+.watch-brand small, .watch-queue small { color: #ebd4b8; font-size: 11px; word-break: keep-all; }
 .watch-header-actions, .watch-views { display: flex; gap: 5px; }
 .watch-control { min-height: 35px; padding: 6px 9px; white-space: nowrap; font-size: 12px; font-weight: 850; }
 .watch-control[aria-pressed=true] { border-color: #e5b168; color: #ffe3af; background: #59402a; }
-.watch-side { position: absolute; top: calc(var(--top) + 72px); left: var(--edge); display: grid; gap: 6px; justify-items: start; }
-.watch-queue { display: grid; gap: 3px; padding: 8px 11px; border-color: #e5b168; }
+.watch-side { display: grid; gap: 6px; justify-items: start; margin-top: 6px; }
+.watch-queue { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 8px; padding: 8px 11px; border-color: #e5b168; }
+.watch-queue [role=status] { display: grid; gap: 3px; }
 .watch-queue strong { color: #ffe09b; font-size: 15px; }
+.watch-queue .watch-control { min-height: 30px; font-size: 11px; }
 .watch-hours { pointer-events: auto; padding: 6px 8px; }
 .watch-hours summary { cursor: pointer; color: #ffe09b; font-size: 11px; font-weight: 850; }
 .watch-hours[open] { width: min(225px, calc(100vw - 2 * var(--edge))); }
@@ -168,7 +171,6 @@ canvas { position: absolute; inset: 0; display: block; width: 100%; height: 100%
   .watch-brand strong { font-size: 12px; }
   .watch-control { padding: 5px 7px; font-size: 11px; }
   .watch-header-actions i { display: none; }
-  .watch-side { top: calc(var(--top) + 62px); }
   .watch-panel { top: auto; bottom: calc(var(--bottom) + 43px); left: var(--edge); width: auto; max-height: 38dvh; }
 }
 @media (max-height: 440px) {
@@ -561,6 +563,10 @@ body:has(#chat-form:not([hidden])) #toast { bottom: calc(var(--bottom) + 92px); 
   .location { display: none; }
 }
 @media (pointer: coarse), (max-width: 640px) {
+  .stage, dialog { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+  input, textarea { -webkit-user-select: text; user-select: text; -webkit-touch-callout: default; }
+  button, summary { touch-action: manipulation; }
+  .stage img { pointer-events: none; }
   .keys { display: none; }
   .touch { display: grid; grid-template-columns: repeat(3, 37px); grid-template-rows: repeat(2, 33px); gap: 3px; touch-action: none; }
   .touch button { background: var(--glass); border: 1px solid #af845bba; border-radius: 6px; color: #ffe0b5; font-size: 13px; touch-action: none; }

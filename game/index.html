@@ -15,7 +15,7 @@
     <section class="entrance" id="entrance" aria-labelledby="entrance-title">
       <picture class="entrance-art">
         <source media="(max-aspect-ratio: 3/4)" srcset="./market-intro-warm-portrait.webp">
-        <img src="./market-intro-warm.webp" alt="스카프 아저씨가 환호하는 남대문 장터 손님들 앞에서 길게 펼쳐지는 스카프를 흔드는 모습" fetchpriority="high">
+        <img src="./market-intro-warm.webp" alt="스카프 아저씨가 환호하는 남대문 장터 손님들 앞에서 길게 펼쳐지는 스카프를 흔드는 모습" fetchpriority="high" draggable="false">
       </picture>
       <nav class="entrance-nav" aria-label="시작 화면 메뉴">
         <button class="glass navitem" type="button" id="lobby-profile"><i data-icon="user"></i><span>내 프로필</span></button>
@@ -56,7 +56,7 @@
           </div>
           <div class="entrance-actions">
             <button type="button" class="enter-market" id="enter-market" aria-describedby="queue-detail">
-              <span id="enter-market-label">시장입장하기</span><i data-icon="arrow" aria-hidden="true"></i>
+              <span id="enter-market-label">미리 입장하기</span><i data-icon="arrow" aria-hidden="true"></i>
             </button>
             <button type="button" class="glass watch-market" id="spectate-market"><i data-icon="store" aria-hidden="true"></i> 시장 구경하기</button>
           </div>
@@ -64,22 +64,27 @@
       </div>
     </section>
     <section id="watch-ui" aria-label="남대문시장 실시간 구경" hidden>
-      <header class="watch-header">
-        <div class="glass watch-brand"><span id="watch-connection">● 구경 모드</span><strong>남대문 스카프 상회</strong><small id="watch-heading"></small></div>
-        <div class="watch-header-actions">
-          <button class="glass watch-control" id="watch-stock-toggle" type="button" aria-expanded="false" aria-controls="watch-panel"><i data-icon="store" aria-hidden="true"></i> 재고 보기</button>
-          <button class="glass watch-control" id="watch-exit" type="button"><i data-icon="left" aria-hidden="true"></i> 돌아가기</button>
+      <div class="watch-top">
+        <header class="watch-header">
+          <div class="glass watch-brand"><span id="watch-connection">● 구경 모드</span><strong>남대문 스카프 상회</strong><small id="watch-heading"></small></div>
+          <div class="watch-header-actions">
+            <button class="glass watch-control" id="watch-stock-toggle" type="button" aria-expanded="false" aria-controls="watch-panel"><i data-icon="store" aria-hidden="true"></i> 재고 보기</button>
+            <button class="glass watch-control" id="watch-exit" type="button"><i data-icon="left" aria-hidden="true"></i> 돌아가기</button>
+          </div>
+        </header>
+        <div class="watch-side">
+          <div class="glass watch-queue" id="watch-queue" hidden>
+            <div id="watch-queue-status" role="status" aria-atomic="true" tabindex="-1">
+              <strong id="watch-position"></strong><small>자리가 나면 자동 입장해요.</small>
+            </div>
+            <button class="glass watch-control" id="watch-cancel" type="button">줄서기 취소</button>
+          </div>
+          <details class="glass watch-hours">
+            <summary>장 운영 시간</summary>
+            <small>매일 · 한국 시간 · 45분</small>
+            <ol class="market-hours-list" id="watch-hours-list" aria-label="매일 개장 시간"></ol>
+          </details>
         </div>
-      </header>
-      <div class="watch-side">
-        <div class="glass watch-queue" id="watch-queue" role="status" hidden>
-          <strong id="watch-position"></strong><small>자리가 나면 순서대로 자동 입장해요.</small>
-        </div>
-        <details class="glass watch-hours">
-          <summary>장 운영 시간</summary>
-          <small>매일 · 한국 시간 · 45분</small>
-          <ol class="market-hours-list" id="watch-hours-list" aria-label="매일 개장 시간"></ol>
-        </details>
       </div>
       <aside class="watch-panel" id="watch-panel" aria-label="스카프 매대 재고" hidden>
         <div class="watch-summary"><strong>매대 재고</strong><span id="watch-time" role="timer" aria-live="off"></span></div>
@@ -91,13 +96,13 @@
           <button class="glass watch-control" id="watch-wide" type="button" aria-pressed="true">골목 전체</button>
           <button class="glass watch-control" id="watch-stall" type="button" aria-pressed="false">스카프 매대</button>
         </div>
-        <button class="primary watch-control" id="watch-enter" type="button">시장입장하기</button>
+        <button class="primary watch-control" id="watch-enter" type="button">대기자 입장하기</button>
       </footer>
       <p id="watch-feedback" class="glass watch-feedback" role="status" hidden></p>
     </section>
     <div id="vendor-marker" class="markers">
       <button id="vendor-speech" class="speech" type="button" aria-label="상인의 다음 멘트 듣기" hidden>
-        <span class="speech-speaker"><img id="vendor-avatar" src="./vendor.svg" width="22" height="22" alt=""><strong id="vendor-name">스카프 아저씨</strong><span id="vendor-soldout" class="soldout-tag" hidden>완판!</span><i data-icon="shuffle"></i></span>
+        <span class="speech-speaker"><img id="vendor-avatar" src="./vendor.svg" width="22" height="22" alt="" draggable="false"><strong id="vendor-name">스카프 아저씨</strong><span id="vendor-soldout" class="soldout-tag" hidden>완판!</span><i data-icon="shuffle"></i></span>
         <span id="line"></span>
         <span id="vendor-reopen" class="speech-reopen" hidden></span>
       </button>
@@ -139,7 +144,7 @@
 
     <header class="topbar">
       <div class="brand">
-        <img src="./mark.svg" width="40" height="40" alt="">
+        <img src="./mark.svg" width="40" height="40" alt="" draggable="false">
         <span><strong>남대문 스카프 상회</strong><small>01 · 첫 번째 시장</small></span>
       </div>
       <div class="location"><i data-icon="pin"></i> 남대문시장 <span> / </span> 스카프 골목</div>

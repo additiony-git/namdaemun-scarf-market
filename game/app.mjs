@@ -375,7 +375,7 @@ function renderEntrance(session, now){
   const button=$('enter-market');
   button.disabled=cancelQueue||(entryRequested&&!waitingPosition);
   const label=waitingPosition?'대기 '+waitingPosition+'번 · 구경하기'
-    :entryRequested?'입장 확인 중':full?'줄서기':open?'시장입장하기':'미리 입장하기';
+    :entryRequested?'입장 확인 중':full?'선착순 줄서기':open?'시장 입장하기':'미리 입장하기';
   setText('enter-market-label',label);
   $('queue-card').dataset.state=waitingPosition?'queue':full?'full':open?'open':'waiting';
   setText('queue-heading',open?(session.testing?'테스트 장 판매 중':session.slot+'차 판매 중'):session.nextSlot+'차 개장까지');
@@ -383,7 +383,8 @@ function renderEntrance(session, now){
   const marketOnline=watchStatus?.marketOnline??0;
   const capacity=watchStatus?.marketCapacity??MARKET_CAPACITY;
   const entryDetail=endpoint?'입장 '+marketOnline+'/'+capacity+'명':'혼자 체험';
-  setText('queue-detail',open?entryDetail+' · '+(full?'줄서기 가능':'선착순 입장'):'개장 '+nextDate+' · '+entryDetail);
+  const entryNote=endpoint?' · '+(full?'줄서기 가능':'선착순'):'';
+  setText('queue-detail',(open?'':'개장 '+nextDate+' · ')+entryDetail+entryNote);
   setText('queue-countdown',countdownText((open?session.closes:session.next)-now));
 }
 function returnToEntrance(message='시작 화면으로 돌아왔어요.'){
@@ -668,7 +669,6 @@ function renderSpectator(rotateVendor=false){
   const current=watchStatus?.open&&session.open&&watchStatus.round===session.round;
   const count=watchCrowdCount??watchStatus?.marketOnline??0;
   const capacity=watchStatus?.marketCapacity??MARKET_CAPACITY;
-  const full=count>=capacity;
   setText('watch-connection',!endpoint?'● 구경 모드':!watchCrowdAt?'● 시장 연결 중':feedWatching?'● 실시간 관람':'● 시장 상황 갱신 중');
   $('watch-queue').hidden=!waitingPosition;
   if(waitingPosition)setText('watch-position','내 대기 순번 '+waitingPosition+'번');
@@ -683,9 +683,10 @@ function renderSpectator(rotateVendor=false){
   }
   setText('watch-heading',heading+(endpoint?' · '+count+'/'+capacity+'명':''));
   setText('watch-time',countdownText((session.open?session.closes:session.next)-now));
-  $('watch-enter').disabled=cancelQueue||(entryRequested&&!waitingPosition);
-  setText('watch-enter',waitingPosition?'줄서기 취소':cancelQueue?'줄서기 취소 중'
-    :entryRequested?'입장 확인 중':full?'줄서기':session.open?'시장입장하기':'미리 입장하기');
+  $('watch-enter').hidden=Boolean(waitingPosition);
+  $('watch-enter').disabled=cancelQueue||entryRequested;
+  const watchEntryLabel=endpoint?'대기자 입장하기':session.open?'시장 입장하기':'미리 입장하기';
+  setText('watch-enter',cancelQueue?'줄서기 취소 중':entryRequested?'입장 확인 중':watchEntryLabel);
   $('watch-refresh').hidden=!endpoint||feed?.readyState===WebSocket.OPEN;
   $('watch-refresh').disabled=Date.now()<watchRefreshAt;
   const signature=[session.round,session.open,watchStatus?.revision,current].join(':');
@@ -911,7 +912,10 @@ async function connect(){
     entryRequested=Boolean(waitingPosition);
     if(!enteredMarket&&data.room==='market')showMarket(data);
     else if(enteredMarket&&data.room==='lobby')returnToEntrance(admissionMessage(data));
-    else if(!wasWaiting&&waitingPosition)openSpectator();
+    else if(!wasWaiting&&waitingPosition){
+      openSpectator();
+      $('watch-queue-status').focus({preventScroll:true});
+    }
     else if(requestingEntry&&data.admission==='closed'){
       setText('entrance-notice',admissionMessage(data));
       $('entrance-notice').hidden=false;
@@ -920,6 +924,7 @@ async function connect(){
       openSpectator(admissionMessage(data));
     }
     mode='online';misses=0;setModel(data);
+    if(extra.cancelQueue&&watchingMarket&&!waitingPosition)$('watch-enter').focus({preventScroll:true});
     connectFeed();
   }catch{
     if(revision!==roomRevision)return;
@@ -1095,7 +1100,11 @@ document.addEventListener('visibilitychange',()=>{
   else{tick();queue(100);}
 });
 for(const control of document.querySelectorAll('[data-dir]')){
-  control.addEventListener('pointerdown',e=>{control.setPointerCapture(e.pointerId);world?.dir.add(control.dataset.dir);});
+  control.addEventListener('pointerdown',e=>{
+    e.preventDefault();
+    control.setPointerCapture(e.pointerId);
+    world?.dir.add(control.dataset.dir);
+  });
   for(const event of ['pointerup','pointercancel','lostpointercapture'])control.addEventListener(event,()=>world?.dir.delete(control.dataset.dir));
 }
 function showWorldError(){
@@ -1166,8 +1175,8 @@ function showMarket(session){
 $('enter-market').onclick=enterMarket;
 $('spectate-market').onclick=()=>openSpectator();
 $('watch-exit').onclick=closeSpectator;
-$('watch-enter').onclick=()=>{
-  if(!waitingPosition){enterMarket();return;}
+$('watch-enter').onclick=enterMarket;
+$('watch-cancel').onclick=()=>{
   stopWaiting();
   showWatchFeedback('줄서기를 취소했어요. 시장은 계속 구경할 수 있어요.');
   tick();
