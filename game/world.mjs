@@ -1,4 +1,4 @@
-import { AVATAR_OPTIONS, DEFAULT_LOOK, MAP, RARE_SCARVES, SCARVES, SHOP_RADIUS, SPAWN, STALLS, normalizeLook, roundCloth } from './catalog.mjs';
+import { AVATAR_OPTIONS, DEFAULT_LOOK, MAP, RARE_SCARVES, SCARF_STALL, SCARVES, SHOP_RADIUS, SPAWN, normalizeLook, roundCloth } from './catalog.mjs';
 
 const ground = -0.09;
 const hex = (h) => { const n = parseInt(h.replace('#', ''), 16); return [(n >> 16) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255]; };
@@ -338,7 +338,7 @@ function buildScene(m, signs) {
   store({x:-7.5,z:-2.1,w:4.5,a:Math.PI*.46,wall:'9d6f5c',h:4.8,top:'남대문 잡채호떡',bottom:'갓 구운 골목 간식',signColor:'824d35',ink:'ffdb9d',stripes:['b26349','efad70'],kind:'fruit'});
   store({x:-8.2,z:3.1,w:4.7,a:Math.PI*.45,wall:'a57358',h:4.1,top:'오늘은 장날',bottom:'남대문 식품',signColor:'466454',ink:'ffe2a7',stripes:['80917c','d8be8f'],kind:'fruit'});
   const scarf=store({x:-1.72,z:-3.26,w:5.28,a:0,wall:'a67459',h:4.63,top:'남대문 스카프 상회',bottom:'스카프 · 손수건 · 골목의 멋',signColor:'922f2d',ink:'ffe0a4',stripes:['c75b4e','f0c695'],front:1.45});
-  const junk=store({x:4.92,z:-.38,w:3.75,a:-.43,wall:'83646a',h:3.9,top:'남대문 잡화점',bottom:'오픈 준비 중',signColor:'55415f',ink:'f5d1ec',stripes:['8a627d','d3a7a7'],front:1.41});
+  const warehouse=store({x:4.92,z:-.38,w:3.75,a:-.43,wall:'83646a',h:3.9,top:'남대문 창고',bottom:'시장 물류',signColor:'55415f',ink:'f5d1ec',stripes:['8a627d','d3a7a7'],front:1.41});
   const near=store({x:8.3,z:3.4,w:3.1,a:-1.12,wall:'8e725f',h:3.25,top:'남문 그릇',bottom:'사기 · 잡화',signColor:'585a45',ink:'f4d295',stripes:['7e8469','d7a77c'],kind:'junk'});
   building(2.5,-9.8,3.9,6.7,0,'916358',['855749','a07560']);
   building(-1.5,-10.9,4.0,6.1,.12,'89635b',['7c544e','a07564']);
@@ -351,10 +351,10 @@ function buildScene(m, signs) {
     m.box(I,x,0,z,2.8+rnd(),5+rnd()*5,2.8,pick(['87646a','906b6b','9d736b','a17971','785b64']));
   }
   signBoard(scarf,-2.13,1.21,1.89,.57,.25,'스카프','', 'f1d298','742f30');
-  signBoard(junk,.04,1.02,1.62,1.42,.34,'오픈 준비 중','', '503442','ffe0a8');
+  signBoard(warehouse,.04,1.02,1.62,1.42,.34,'창고','', '503442','ffe0a8');
   signBoard(near,-.9,1.39,1.62,.46,.24,'그릇','', 'dec092','554b38');
   for(let i=0;i<8;i++) {crate(I,-5.74+(i%2)*.35,-1.2-i*.61,'9a6546',0,.55,.46);}
-  crate(junk,-1.57,2.05,'a57750'); crate(junk,-1.57,2.05,'a06b4b',.423,.59,.49);
+  crate(warehouse,-1.57,2.05,'a57750'); crate(warehouse,-1.57,2.05,'a06b4b',.423,.59,.49);
   crate(I,5.57,5.8,'ac7c54'); crate(I,5.61,6.35,'996449');
   crate(I,-5.65,4.25,'a67652');crate(I,-5.65,4.25,'926341',.421,.57,.46);
   for(let i=0;i<6;i++){
@@ -433,7 +433,7 @@ export function createWorld(canvas, markers, onNearby) {
     return { b:buffer([...a,...b,...c,...a,...c,...d]), tex:texture(gl,s) };
   });
   const self={...SPAWN,a:.25,look:DEFAULT_LOOK};
-  let near='', shopFocused=false, last=0, walk=0, width=1,height=1;
+  let near=false, shopFocused=false, last=0, walk=0, width=1,height=1;
   let entranceShot=true, entranceRendered=false, snapCamera=false, watchView='';
   let cam=[.20,1.07,.75], sx=.11,sy=.17;
   let peers = new Map();
@@ -484,16 +484,13 @@ export function createWorld(canvas, markers, onNearby) {
       if(walkable(self.x,z))self.z=z;
       self.a=Math.atan2(v[0],v[2]);walk+=dt*14;
     }
-    const scarfDistance=Math.hypot(self.x-STALLS.scarves.x,self.z-STALLS.scarves.z);
-    const junkDistance=Math.hypot(self.x-STALLS.junk.x,self.z-STALLS.junk.z);
-    const nearest=scarfDistance<junkDistance?'scarves':'junk';
-    const distance=Math.min(scarfDistance,junkDistance);
-    const current=distance<=SHOP_RADIUS+(near===nearest?.24:0)?nearest:'';
+    const distance=Math.hypot(self.x-SCARF_STALL.x,self.z-SCARF_STALL.z);
+    const current=distance<=SHOP_RADIUS+(near?.24:0);
     if(!entranceShot&&!watchView&&current!==near){near=current;onNearby(current);}
     const follow=snapCamera?1:1-Math.exp(-dt*4);
     snapCamera=false;
     const compact=width<=640;
-    const stall=shopFocused?STALLS[near]:null;
+    const stall=shopFocused&&near?SCARF_STALL:null;
     if(entranceShot){
       cam=compact?[-1.6,2.85,.62]:[-4.45,1.24,.38];
     }else if(watchView==='stall'){
@@ -563,10 +560,10 @@ export function createWorld(canvas, markers, onNearby) {
     markers.speech.style.left=Math.max(half,Math.min(width-half,bubbleX))+'px';
     markers.speech.style.top=bubbleY+'px';
     if(!watchView){
-      for(const [key,p] of Object.entries({ scarves:[-1.67,2.94,-1.98], junk:[4.36,2.75,.95] })){
-        const [x,y]=project(...p);markers[key].style.left=x+'px';markers[key].style.top=y+'px';
-        markers[key].hidden=x<35||x>width-35||y<52||y>height-60;
-      }
+      const [scarfX,scarfY]=project(-1.67,2.94,-1.98);
+      markers.scarves.style.left=scarfX+'px';
+      markers.scarves.style.top=scarfY+'px';
+      markers.scarves.hidden=scarfX<35||scarfX>width-35||scarfY<52||scarfY>height-60;
       for(const p of peers.values()){
         const [x,y]=project(p.x,1.33,p.z);
         p.label.style.left=x+'px';p.label.style.top=y+'px';
@@ -587,7 +584,7 @@ export function createWorld(canvas, markers, onNearby) {
       dir.clear();
       markers.speech.hidden=true;
       Object.assign(self,SPAWN,{a:.25});
-      near='';
+      near=false;
       shopFocused=false;
       entranceShot=true;
       entranceRendered=false;

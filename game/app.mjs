@@ -55,7 +55,7 @@ let entranceSchedule;
 let muted=true, audioCtx, toastTimer, acting=false;
 let profileTab='avatar', profileFeedback='';
 const profileDrafts=new Map();
-let nearby='', shop='', shopSignature='', inventory, feed, retryFeedAt=0, transitionRequested=0;
+let nearby=false, shop=false, shopSignature='', inventory, feed, retryFeedAt=0, transitionRequested=0;
 let soldoutPreview=false, soldoutPreviewTimer;
 let soldoutEffectFrame, soldoutEffectTimer;
 let lastLine='', filter='all', sendingChat=false;
@@ -403,7 +403,7 @@ function returnToEntrance(message='시작 화면으로 돌아왔어요.'){
   closeFeed();
   if(dialog.open)dialog.close();
   setChatOpen(false);
-  nearby='';
+  nearby=false;
   closeShop();
   clearSoldoutEffect();
   clearTimeout(toastTimer);
@@ -471,8 +471,6 @@ function render(){
 }
 function modalInfo(type){
   return ({
-    scarves:['01 · SCARF STALL','스카프 매대'],
-    junk:['02 · ODD GOODS','잡화점'],
     rank:['MARKET RANKING','쓸모없는 수집왕'],
     profile:['MY MARKET PROFILE','내 프로필'],
   })[type];
@@ -508,22 +506,18 @@ function itemRow(item, detail, end){
   const rare=item.rare?'<span class="rare-tag"><span aria-hidden="true">✦</span> 레어</span>':'';
   return '<div class="item'+(item.rare?' rare-item':'')+'">'+itemPicture(item)+'<span class="item-info"><strong>'+item.name+rare+'</strong><small>'+detail+'</small></span>'+end+'</div>';
 }
-function openShop(type){
-  if(soldoutPreview&&type!=='scarves')setSoldoutPreview(false);
-  shop=type;
+function openShop(){
+  shop=true;
   filter='all';
   shopSignature='';
   $('shop-feedback').textContent='';
-  const [label,title]=modalInfo(type);
-  $('shop-kicker').textContent=label;
-  $('shop-title').textContent=title;
   $('shop').hidden=false;
   world?.focusShop(true);
   updateInteract();
   renderShop();
 }
 function closeShop(){
-  shop='';
+  shop=false;
   $('shop').hidden=true;
   if(soldoutPreview)setSoldoutPreview(false);
   world?.focusShop(false);
@@ -534,18 +528,14 @@ function renderShop(){
   const body=$('shop-items');
   const status=displayedAvailability();
   const previewButton=$('soldout-preview');
-  previewButton.hidden=shop!=='scarves'||!inventory?.testing;
+  previewButton.hidden=!inventory?.testing;
   previewButton.disabled=acting;
   previewButton.setAttribute('aria-pressed',String(soldoutPreview));
   previewButton.textContent=soldoutPreview?'미리보기 닫기':'✦ 완판 효과 보기';
-  $('shop-summary').hidden=shop==='junk'||status!=='selling';
-  $('shop-filters').hidden=shop==='junk'||status!=='selling';
-  $('daily-rare').hidden=shop==='junk'||status!=='selling'||!inventory?.rare;
+  $('shop-summary').hidden=status!=='selling';
+  $('shop-filters').hidden=status!=='selling';
+  $('daily-rare').hidden=status!=='selling'||!inventory?.rare;
   $('sale-label').textContent=inventory?.testing?'테스트 장 · 선착순 판매':(inventory?.slot??1)+'차 · 선착순 판매';
-  if(shop==='junk'){
-    body.innerHTML='<div class="shop-closed"><span class="closed-tag">OPENING SOON</span><strong>오픈 준비 중</strong><p>진열이 끝나면 잡화점 문을 열어요.</p></div>';
-    return;
-  }
   if(!model||!inventory){body.innerHTML='<p class="empty">상품을 불러오고 있어요.</p>';return;}
   const signature=[inventory.revision,model.player.cash,mode,acting,filter,soldoutPreview].join(':');
   if(signature===shopSignature)return;
@@ -666,7 +656,7 @@ function renderModal(){
   if(!model){body.innerHTML='<p class="empty">장터에 연결하고 있어요.</p>';return;}
   if(modal==='rank'){
     const p=model.player;
-    body.innerHTML='<p class="modal-note">'+(mode==='solo'?'혼자 체험 기록입니다. ':'장터 상위 30명 · ')+'잡화가 많을수록, 동점이면 해당 수량에 먼저 도달한 순서로 앞서요.</p>'+
+    body.innerHTML='<p class="modal-note">'+(mode==='solo'?'혼자 체험 기록입니다. ':'장터 상위 30명 · ')+'모은 물건이 많을수록, 동점이면 해당 수량에 먼저 도달한 순서로 앞서요.</p>'+
       (model.ranking.length?'<ol class="rank-list">'+rankRows(model.ranking)+'</ol>':'<div class="empty">아직 수집 기록이 없어요. 첫 수집왕에 도전하세요!</div>')+
       (p.rank?'<p class="modal-note" style="margin-top:10px">내 순위: '+p.rank+'위 · '+format(p.collected)+'개</p>':'');
   }
@@ -1024,14 +1014,13 @@ async function act(action, extra){
 }
 
 document.addEventListener('click', e=>{
-  const trade=e.target.closest('[data-trade]');
+  const trade=e.target.closest('[data-trade="scarves"]');
   const item=e.target.closest('[data-action][data-item]');
   const category=e.target.closest('[data-filter]');
   const tab=e.target.closest('[data-profile-tab]');
   if(trade){
-    const type=trade.dataset.trade;
-    if(nearby===type||!$('world-error').hidden)openShop(type);
-    else toast(type==='scarves'?'스카프 아저씨 앞으로 다가가 보세요.':'잡화점 매대 앞으로 다가가 보세요.');
+    if(nearby||!$('world-error').hidden)openShop();
+    else toast('스카프 아저씨 앞으로 다가가 보세요.');
   }
   if(item)void act(item.dataset.action,{item:item.dataset.item});
   if(category){
@@ -1079,7 +1068,7 @@ dialog.addEventListener('click', e=>{if(e.target===dialog){const r=dialog.getBou
 dialog.addEventListener('close',()=>{modal='';});
 $('vendor-speech').onclick=nextVendorLine;
 $('soldout-preview').onclick=()=>{
-  if(inventory?.testing&&shop==='scarves'&&!acting)setSoldoutPreview(!soldoutPreview);
+  if(inventory?.testing&&shop&&!acting)setSoldoutPreview(!soldoutPreview);
 };
 $('sound').onclick=$('watch-sound').onclick=toggleMarketSound;
 const fullscreen=$('fullscreen');
@@ -1105,7 +1094,7 @@ function updateInteract(){
 }
 function toggleShop(){
   if(shop)closeShop();
-  else if(nearby)openShop(nearby);
+  else if(nearby)openShop();
 }
 $('interact').onclick=toggleShop;
 $('close-shop').onclick=closeShop;
@@ -1150,7 +1139,7 @@ for(const control of document.querySelectorAll('[data-dir]')){
 function showWorldError(){
   world?.dir.clear();
   closeShop();
-  nearby='';
+  nearby=false;
   updateInteract();
   $('world-error').hidden=false;
   $('world-markers').hidden=true;
@@ -1162,12 +1151,12 @@ function showWorldError(){
   }
 }
 try{
-  world=createWorld($('world'),{scarves:$('scarf-marker'),junk:$('junk-marker'),speech:$('vendor-speech'),watchSpeech:$('watch-speech'),rare:$('rare-pickups')},type=>{
-    nearby=type;
-    if(type)openShop(type);
-    else closeShop();
-    updateInteract();
-    if(type==='scarves')line();
+  world=createWorld($('world'),{scarves:$('scarf-marker'),speech:$('vendor-speech'),watchSpeech:$('watch-speech'),rare:$('rare-pickups')},isNear=>{
+    nearby=isNear;
+    if(isNear){
+      openShop();
+      line();
+    }else closeShop();
   });
   world.setStock(closedStock,1);
   $('world').addEventListener('webglcontextlost',e=>{e.preventDefault();showWorldError();});

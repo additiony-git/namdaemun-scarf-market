@@ -7,7 +7,7 @@ export const LOBBY_CHAT_MS = 10 * 60_000;
 export const LOBBY_CHAT_LIMIT = 20;
 export const SPAWN = { x: -0.9, z: 3.9 };
 export const MAP = { minX: -5.65, maxX: 5.55, minZ: -1.85, maxZ: 7.3 };
-export const STALLS = { scarves: { x: -1.7, z: -0.65 }, junk: { x: 3.6, z: 1.9 } };
+export const SCARF_STALL = { x: -1.7, z: -0.65 };
 const firstCloth = [
   { id: 'scarf', group: 'scarf', name: '꽃무늬 스카프', price: 700, count: 6, color: '#bd5a59', ink: '#ffdec1', pattern: 'flower', detail: '살구색 꽃잎이 흩어진 장밋빛 스카프.' },
   { id: 'indigo-stripe', group: 'scarf', name: '쪽빛 줄무늬 스카프', price: 750, count: 6, color: '#426d91', ink: '#ddedeb', pattern: 'stripe', detail: '쪽빛 바탕에 흰 줄을 또렷하게 넣었어요.' },
@@ -145,7 +145,6 @@ export const LINES = [
   '고르는 데 한 시간, 사는 데 삼 초! 이게 남대문 시간이여.',
   '뒤집어 봐요. 스카프 앞뒤도 모르면서 가격은 잘 보네!',
   '늦으면 다음 장 기다려요. 스카프도 쉬는 시간이 있어.',
-  '잡화점은 아직 준비 중이에요. 이쪽 천부터 한 번 봐요!',
   '남들 거 보지 말고 자기 취향 믿어요. 정 모르겠으면 꽃무늬!',
   '주머니 가벼워졌지? 어깨도 가벼워진 건 내 덕이라고 해요.',
 ];
