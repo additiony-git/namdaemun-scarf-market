@@ -543,21 +543,6 @@ export function createWorld(canvas, markers, onNearby) {
         }
       }
     }
-    if(watchView){requestAnimationFrame(frame);return;}
-    for(const [key,p] of Object.entries({ scarves:[-1.67,2.94,-1.98], junk:[4.36,2.75,.95] })){
-      const [x,y]=project(...p);markers[key].style.left=x+'px';markers[key].style.top=y+'px';
-      markers[key].hidden=x<35||x>width-35||y<52||y>height-60;
-    }
-    const [bubbleX,bubbleY]=project(vendorPosition[0],1.32,vendorPosition[2]);
-    const half=markers.speech.offsetWidth/2+10;
-    markers.speech.style.left=Math.max(half,Math.min(width-half,bubbleX))+'px';
-    markers.speech.style.top=bubbleY+'px';
-    markers.speech.hidden=bubbleX<0||bubbleX>width||bubbleY<95||bubbleY>height-50;
-    for(const p of peers.values()){
-      const [x,y]=project(p.x,1.33,p.z);
-      p.label.style.left=x+'px';p.label.style.top=y+'px';
-      p.label.hidden=x<26||x>width-26||y<55||y>height-62;
-    }
     for(const [id,bubble] of speeches){
       if(ms>=bubble.until){
         bubble.node.remove();
@@ -571,6 +556,22 @@ export function createWorld(canvas, markers, onNearby) {
       const margin=bubble.node.offsetWidth/2+8;
       bubble.node.style.left=Math.max(margin,Math.min(width-margin,x))+'px';
       bubble.node.style.top=y+'px';
+    }
+    if(!watchView){
+      for(const [key,p] of Object.entries({ scarves:[-1.67,2.94,-1.98], junk:[4.36,2.75,.95] })){
+        const [x,y]=project(...p);markers[key].style.left=x+'px';markers[key].style.top=y+'px';
+        markers[key].hidden=x<35||x>width-35||y<52||y>height-60;
+      }
+      const [bubbleX,bubbleY]=project(vendorPosition[0],1.32,vendorPosition[2]);
+      const half=markers.speech.offsetWidth/2+10;
+      markers.speech.style.left=Math.max(half,Math.min(width-half,bubbleX))+'px';
+      markers.speech.style.top=bubbleY+'px';
+      markers.speech.hidden=bubbleX<0||bubbleX>width||bubbleY<95||bubbleY>height-50;
+      for(const p of peers.values()){
+        const [x,y]=project(p.x,1.33,p.z);
+        p.label.style.left=x+'px';p.label.style.top=y+'px';
+        p.label.hidden=x<26||x>width-26||y<55||y>height-62;
+      }
     }
     requestAnimationFrame(frame);
   }
@@ -619,7 +620,8 @@ export function createWorld(canvas, markers, onNearby) {
       if(!existing){
         node.className='player-speech';
         node.hidden=true;
-        labels.append(node);
+        const layer=watchView?markers.watchSpeech:labels;
+        layer.append(node);
       }
       node.classList.toggle('own-speech',id===viewerId);
       node.textContent=speech.text;
@@ -633,7 +635,8 @@ export function createWorld(canvas, markers, onNearby) {
         const old=peers.get(p.id);
         const label=old?.label??document.createElement('span');
         if(!old){label.className='peer-label';labels.append(label);}
-        if(label.textContent!==p.name)label.textContent=p.name;
+        const name=p.name??'';
+        if(label.textContent!==name)label.textContent=name;
         const s=old??{x:p.x,z:p.z,a:.15,walk:0,label};
         s.tx=p.x;s.tz=p.z;s.look=normalizeLook(p.look);current.set(p.id,s);
       }

@@ -34,17 +34,19 @@ export class MarketRoom extends DurableObject {
         const changed = key !== this.lastMarketStatus;
         this.lastMarketStatus = key;
         const pickup = action === 'buy' && rarePickup?.id === player.id && rarePickup.sentAt === now ? rarePickup : null;
-        const checkCrowd = changed || pickup || (room === 'market' && now - (this.lastCrowdAt ?? 0) >= 2000);
+        const checkCrowd = changed || pickup || (room === 'market' &&
+          (action === 'chat' || action === 'profile' || now - (this.lastCrowdAt ?? 0) >= 2000));
         if (!changed && action !== 'chat' && !checkCrowd && !queueAdvanced) return;
         const status = changed ? JSON.stringify({ type: 'market-status', now, stock, goods, revision, round, slot, nextSlot, next, open, closes, testing, rare, dailyRareSold, marketOnline, marketCapacity }) : null;
         const chat = action === 'chat' ? JSON.stringify({ type: 'chat', speech }) : null;
         let crowd;
         if (checkCrowd) {
           this.lastCrowdAt = now;
-          const snapshot = JSON.stringify({ type: 'market-crowd', crowd: this.market.marketCrowd() });
+          const visitors = this.market.marketCrowd(now);
+          const snapshot = JSON.stringify(visitors);
           if (snapshot !== this.lastCrowd) {
             this.lastCrowd = snapshot;
-            crowd = snapshot;
+            crowd = JSON.stringify({ type: 'market-crowd', now, crowd: visitors });
           }
         }
         for (const socket of this.ctx.getWebSockets()) {
@@ -74,7 +76,7 @@ export class MarketRoom extends DurableObject {
     if (watching) {
       const now = Date.now();
       this.market.prune(now);
-      socket.send(JSON.stringify({ type: 'market-crowd', crowd: this.market.marketCrowd() }));
+      socket.send(JSON.stringify({ type: 'market-crowd', now, crowd: this.market.marketCrowd(now) }));
       const pickup = this.market.rarePickup(now, true);
       if (pickup) socket.send(JSON.stringify({ type: 'rare-pickup', pickup }));
     }

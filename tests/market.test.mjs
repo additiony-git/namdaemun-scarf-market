@@ -126,7 +126,7 @@ test('the last seat admits one contender and the other can watch inventory witho
   const viewpoint=market.action({action:'sync',room:'lobby',watch:true,token:waiting.token},start+500);
   assert.equal(viewpoint.crowd.length,MARKET_CAPACITY);
   assert.equal(viewpoint.queuePosition,1);
-  assert.deepEqual(Object.keys(viewpoint.crowd[0]).sort(),['id','x','z']);
+  assert.deepEqual(Object.keys(viewpoint.crowd[0]).sort(),['id','look','speech','x','z']);
   assert.equal(typeof viewpoint.crowd[0].id,'number');
   assert.equal(sync(winner,'lobby',start+600).marketOnline,MARKET_CAPACITY-1);
   assert.equal(sync(waiting,'market',start+700).currencyGrant,ROUND_CURRENCY);
@@ -197,7 +197,16 @@ test('the closed market supports entry, chat and spectating, and seats and the q
   assert.equal(message.speech.text,'개장 기다리는 중이에요.');
   const listening=action(seats[0],'sync',before+3);
   assert.equal(listening.peers.find(peer=>peer.id===early.player.id).speech.text,message.speech.text);
+  const outfit={character:'female',hat:'ribbon',coat:'roseCardigan',bag:'wovenBasket',scarf:'none'};
+  const dressed=action(early,'profile',before+3,{name:'기다리는 손님',look:outfit});
+  assert.deepEqual(dressed.player.look,outfit);
+  const live=action(queued,'sync',before+4,{room:'lobby',watch:true}).crowd.find(person=>person.id===avatar.id);
+  assert.deepEqual(live.look,outfit);
+  assert.deepEqual(live.speech,{playerId:avatar.id,text:message.speech.text,sentAt:before+2,expiresAt:before+2+CHAT_MS});
+  assert.equal(live.name,undefined);
   assert.equal(action(queued,'chat',before+4,{text:'시장 채팅'}).status,409);
+  const afterSpeech=action(queued,'sync',before+2+CHAT_MS,{room:'lobby',watch:true});
+  assert.equal(afterSpeech.crowd.find(person=>person.id===avatar.id).speech,undefined);
 
   const opened=action(early,'sync',start);
   assert.equal(opened.room,'market');

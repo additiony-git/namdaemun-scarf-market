@@ -62,9 +62,14 @@ export class Market {
     for (const person of this.people.values()) if (person.room === 'market') count++;
     return count;
   }
-  marketCrowd() {
+  marketCrowd(now) {
     return [...this.people.values()].filter(person => person.room === 'market')
-      .map(({ watchId, x, z }) => ({ id: watchId, x, z }));
+      .map(({ watchId, x, z, look, speech }) => ({
+        id: watchId, x, z, look,
+        speech: speech?.expiresAt > now
+          ? { playerId: watchId, text: speech.text, sentAt: speech.sentAt, expiresAt: speech.expiresAt }
+          : undefined,
+      }));
   }
   rarePickup(now, watching = false) {
     for (const person of this.people.values()) {
@@ -253,7 +258,7 @@ export class Market {
         basket: this.query('SELECT item, qty, updated FROM basket WHERE player = ? ORDER BY updated DESC, item', player.id),
         ranking, online: roomPeople.length,
         lobbyMessages: room === 'lobby' ? this.lobbyMessages.slice() : undefined,
-        crowd: room === 'lobby' && body.watch === true ? this.marketCrowd() : undefined,
+        crowd: room === 'lobby' && body.watch === true ? this.marketCrowd(now) : undefined,
         rarePickup: room === 'market' || body.watch === true ? this.rarePickup(now, room === 'lobby') : undefined,
         peers: (room === 'market' ? roomPeople : []).filter(p => p.id !== player.id).slice(0, 35).map(({ id, name, x, z, speech, look }) =>
           ({ id, name, x, z, look, speech: speech?.sentAt + CHAT_FEED_MS > now ? speech : undefined })),

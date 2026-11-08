@@ -49,7 +49,7 @@ let enteredMarket=false, entryRequested=false, waitingPosition=0, cancelQueue=fa
 let watchingMarket=false;
 let feedWatching=false;
 let queueAdvancePending=false, marketPositionSent;
-let watchStatus, watchSignature='', watchRefreshAt=0;
+let watchStatus, watchSignature='', watchRefreshAt=0, watchCrowdAt=0, watchCrowdCount;
 let entranceSchedule;
 let muted=true, audioCtx, toastTimer, acting=false;
 let profileTab='avatar', profileFeedback='';
@@ -158,7 +158,7 @@ function setModel(data){
     setInventory(data);
   }else{
     for(const speech of data.lobbyMessages??[])showLobbyChat(speech);
-    if(watchingMarket&&data.crowd)setWatchCrowd(data.crowd);
+    if(watchingMarket&&data.crowd)setWatchCrowd(data.crowd,data.now);
   }
   if(enteredMarket||watchingMarket)showRarePickup(data.rarePickup);
   render();
@@ -225,11 +225,15 @@ function setInventory(data){
   tick();
   renderShop();
 }
+function showSpeechBubble(speech,now){
+  if(!speech||typeof speech.text!=='string')return;
+  const remaining=Math.min(CHAT_MS,speech.expiresAt-now);
+  if(remaining>0)world?.showChat(speech,remaining);
+}
 function showChat(speech){
   if(!speech||typeof speech.text!=='string')return;
   const now=Date.now()+timeOffset;
-  const remaining=Math.min(CHAT_MS,speech.expiresAt-now);
-  if(remaining>0)world?.showChat(speech,remaining);
+  showSpeechBubble(speech,now);
   const duration=Math.min(CHAT_FEED_MS,speech.sentAt+CHAT_FEED_MS-now);
   const key=speech.playerId+':'+speech.sentAt;
   if(!(duration>0)||seenChat.has(key))return;
@@ -291,7 +295,7 @@ function connectFeed(){
           queueAdvancePending=true;
           if(!busy)queue(0);
         }
-        if(watchingMarket&&update.type==='market-crowd')setWatchCrowd(update.crowd);
+        if(watchingMarket&&update.type==='market-crowd')setWatchCrowd(update.crowd,update.now);
         if(watchingMarket&&update.type==='rare-pickup')showRarePickup(update.pickup);
         if(update.type==='market-status'){
           const wasFull=seatsFull();
@@ -660,9 +664,10 @@ function renderSpectator(){
   const now=Date.now()+timeOffset;
   const session=scheduleAt(now);
   const current=watchStatus?.open&&session.open&&watchStatus.round===session.round;
-  const full=seatsFull();
-  const count=watchStatus?.marketOnline??0;
+  const count=watchCrowdCount??watchStatus?.marketOnline??0;
   const capacity=watchStatus?.marketCapacity??MARKET_CAPACITY;
+  const full=count>=capacity;
+  setText('watch-connection',!endpoint?'● 구경 모드':!watchCrowdAt?'● 시장 연결 중':feedWatching?'● 실시간 관람':'● 시장 상황 갱신 중');
   $('watch-queue').hidden=!waitingPosition;
   if(waitingPosition)setText('watch-position','내 대기 순번 '+waitingPosition+'번');
   const stock=current?watchStatus.stock:closedStock;
@@ -692,8 +697,14 @@ function renderSpectator(){
     list.scrollTop=scrollTop;
   }
 }
-function setWatchCrowd(crowd){
-  if(Array.isArray(crowd))world?.setPeers(crowd.map(person=>({...person,name:'손님'})));
+function setWatchCrowd(crowd,now=Date.now()+timeOffset){
+  if(!Array.isArray(crowd)||now<watchCrowdAt)return;
+  watchCrowdAt=now;
+  watchCrowdCount=crowd.length;
+  world?.setPeers(crowd);
+  const serverNow=Date.now()+timeOffset;
+  for(const person of crowd)showSpeechBubble(person.speech,serverNow);
+  renderSpectator();
 }
 function subscribeToWatch(active){
   if(feed?.readyState!==WebSocket.OPEN||active===feedWatching)return;
@@ -725,13 +736,15 @@ function openSpectator(message){
     if(dialog.open)dialog.close();
     setLobbyChatOpen(false,false);
     watchingMarket=true;
+    watchCrowdAt=0;
+    watchCrowdCount=undefined;
     watchSignature='';
     $('entrance').hidden=true;
     $('watch-ui').hidden=false;
     $('world').removeAttribute('aria-hidden');
     $('world').setAttribute('aria-label','남대문시장 골목 구경');
     setWatchView('wide');
-    setWatchPanel(!world||!matchMedia('(max-width: 640px)').matches);
+    setWatchPanel(!world||(scheduleAt(Date.now()+timeOffset).open&&!matchMedia('(max-width: 640px)').matches));
     $('watch-exit').focus({preventScroll:true});
     if(feed?.readyState===WebSocket.OPEN)subscribeToWatch(true);
     else queue(0);
@@ -1086,7 +1099,7 @@ function showWorldError(){
   }
 }
 try{
-  world=createWorld($('world'),{scarves:$('scarf-marker'),junk:$('junk-marker'),speech:$('vendor-speech'),rare:$('rare-pickups')},type=>{
+  world=createWorld($('world'),{scarves:$('scarf-marker'),junk:$('junk-marker'),speech:$('vendor-speech'),watchSpeech:$('watch-speech'),rare:$('rare-pickups')},type=>{
     nearby=type;
     if(type)openShop(type);
     else closeShop();
