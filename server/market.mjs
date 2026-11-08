@@ -1,4 +1,4 @@
-import { CHAT_FEED_MS, CHAT_LIMIT, CHAT_MS, EMPTY_STOCK, JUNK, LOBBY_CHAT_LIMIT, LOBBY_CHAT_MS, MAP, MARKET_CAPACITY, MARKET_EXIT_MS, MARKET_HOURS, MARKET_ITEMS, RARE_PICKUP_MS, ROUND_CURRENCY, SPAWN, chatText, fit, lastMarketClose, marketRare, marketSession, niceName, normalizeLook, roundCloth, roundStock, seoulDay, seoulDayStart } from '../game/catalog.mjs';
+import { CHAT_FEED_MS, CHAT_LIMIT, CHAT_MS, EMPTY_STOCK, JUNK, LOBBY_CHAT_LIMIT, LOBBY_CHAT_MS, MAP, MARKET_CAPACITY, MARKET_EXIT_MS, MARKET_ITEMS, RARE_PICKUP_MS, ROUND_CURRENCY, SPAWN, chatText, fit, isNightMarket, lastMarketClose, marketRare, marketSession, niceName, normalizeLook, roundCloth, roundStock, seoulDay, seoulDayStart } from '../game/catalog.mjs';
 
 const defaultName = '새내기 손님';
 const presenceMs = 30_000;
@@ -111,9 +111,9 @@ export class Market {
     const shortWindow = expired && Math.floor(this.testWindow.from / minute) === expiryMinute;
     const revision = expired ? Math.max(scheduledRevision, expiryMinute * 1000 + (shortWindow ? 800 : 0)) : scheduledRevision;
     if (!open) return { ...session, stock: EMPTY_STOCK, goods: {}, rare: null, revision };
-    const rare = marketRare(session).id;
+    const rare = marketRare(session)?.id ?? null;
     const stock = roundStock(session.slot);
-    stock[rare] = 1;
+    if (rare) stock[rare] = 1;
     let used = 0;
     for (const { item, qty } of this.query('SELECT item, qty FROM cloth_sales WHERE round = ?', round)) {
       const remaining=Math.max(0,(stock[item]??0)-qty);
@@ -122,7 +122,7 @@ export class Market {
     }
     // Before per-round sales, the night and test markets recorded rare sales by day.
     const started = round * minute;
-    if (stock[rare] && (session.testing || session.slot === MARKET_HOURS.length) &&
+    if (rare && stock[rare] && (session.testing || isNightMarket(round)) &&
         this.get('SELECT 1 FROM daily_rare_sales WHERE day = ? AND EXISTS (SELECT 1 FROM basket WHERE item = ? AND updated >= ? AND updated < ?)',
           seoulDay(started), rare, started, session.closes)) {
       stock[rare] = 0;

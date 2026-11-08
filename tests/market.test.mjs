@@ -24,25 +24,23 @@ function setup() {
   return {create, db, close:()=>db.close()};
 }
 
-test('the Seoul calendar opens at noon, 20:00 and 22:00 for 45 minutes', ()=>{
-  for(let day=0;day<7;day++){
-    const dayStart=midnight+day*86_400_000;
-    let at=dayStart;
-    for(let slot=1;slot<=3;slot++){
-      const opening=marketSession(at).next;
-      assert.equal(opening,dayStart+openingHours[slot-1]*3_600_000);
-      assert.equal(marketSession(opening-1).nextSlot,slot);
-      assert.equal(marketSession(opening-1).open,false);
-      assert.equal(marketSession(opening).open,true);
-      assert.equal(marketSession(opening).slot,slot);
-      assert.equal(marketSession(opening).closes,opening+MARKET_DURATION);
-      assert.equal(marketSession(opening+MARKET_DURATION-1).open,true);
-      at=opening+MARKET_DURATION;
-      assert.equal(marketSession(at).open,false);
-    }
-    assert.equal(marketSession(at).next,dayStart+86_400_000+12*3_600_000);
-    assert.equal(marketSession(at).nextSlot,1);
+test('the Seoul calendar opens on every hour and closes ten minutes before the featured markets', ()=>{
+  for(let hour=0;hour<24;hour++){
+    const opening=midnight+hour*3_600_000;
+    const before=marketSession(opening-1);
+    const current=marketSession(opening);
+    assert.equal(before.next,opening);
+    assert.equal(before.open,false);
+    assert.equal(before.nextSlot,current.slot);
+    assert.notEqual(before.slot,current.slot);
+    assert.equal(current.open,true);
+    assert.equal(current.next,opening+3_600_000);
+    const duration=openingHours.includes(hour+1)?50*60_000:MARKET_DURATION;
+    assert.equal(current.closes,opening+duration);
+    assert.equal(marketSession(current.closes-1).open,true);
+    assert.equal(marketSession(current.closes).open,false);
   }
+  assert.deepEqual([start,evening,night].map(at=>marketSession(at).slot),[1,2,3]);
 });
 
 test('each round has distinct goods and rejects purchases from the other rounds', t=>{
@@ -207,7 +205,7 @@ test('the closed market supports entry, chat and spectating, and seats and the q
   const market=data.create();
   const join=(id,at,extra={})=>market.action({action:'join',...extra},at,'preopen-'+id);
   const action=(guest,action,at,extra={})=>market.action({action,token:guest.token,...extra},at);
-  const earlyAt=start-40*60_000;
+  const earlyAt=start-9*60_000;
   const early=join('early',earlyAt);
   assert.equal(early.room,'market');
   assert.equal(early.open,false);
@@ -288,7 +286,9 @@ test('two shoppers share one limited stock; only the first gets the last item, t
   assert.equal(closed.stock.scarf,0);
   const next=closed.next;
   const refill=market.action({action:'sync',token:b},next);
-  assert.deepEqual(refill.stock,{...roundStock(2),[marketRare(marketSession(next)).id]:1});
+  const rare=marketRare(marketSession(next));
+  assert.equal(next,start+3_600_000);
+  assert.deepEqual(refill.stock,{...roundStock(2),...(rare?{[rare.id]:1}:{})});
   assert.equal(refill.player.cash,2*ROUND_CURRENCY-450);
   market.action({action:'buy',item:'ink-edge',token:b},next+400);
   assert.equal(market.action({action:'sync',token:b},next+800).player.cash,2*ROUND_CURRENCY-450-430);
@@ -450,7 +450,7 @@ test('male and female visitors keep their own wardrobes and only share the activ
 
 test('the test window accepts purchases and returns to the regular schedule at expiry', t=>{
   const data=setup();t.after(data.close);
-  const from=midnight+5*60_000,until=from+2*60_000;
+  const from=start-8*60_000,until=from+2*60_000;
   const market=data.create({from,until});
   const guest=market.action({action:'join'},from-1);
   assert.equal(guest.open,false);
@@ -487,7 +487,7 @@ test('a regular market can close after a test ends during its opening', t=>{
   assert.equal(closed.open,false);
 });
 
-test('each round stocks one distinct rare scarf and only the first shopper gets it', t=>{
+test('featured rounds stock distinct rare scarves and only the first shopper gets one', t=>{
   const data=setup();t.after(data.close);
   const third=night;
   const from=third+MARKET_DURATION+60_000;
@@ -533,6 +533,29 @@ test('each round stocks one distinct rare scarf and only the first shopper gets 
   const tomorrow=market.action({action:'sync',token:second.token},night+86_400_000);
   assert.equal(count(tomorrow),1);
   assert.notEqual(tomorrow.rare,rare.id);
+});
+
+test('ordinary rounds sometimes stock one rare scarf and share the draw across restarts', t=>{
+  const data=setup();t.after(data.close);
+  const market=data.create();
+  const ordinary=Array.from({length:24*14},(_,hour)=>midnight+hour*3_600_000)
+    .filter(at=>!openingHours.includes((at-midnight)/3_600_000%24));
+  const bonus=ordinary.filter(at=>marketRare(marketSession(at)));
+  assert.ok(bonus.length>0&&bonus.length<ordinary.length/4);
+  const at=bonus[0];
+  const rare=marketRare(marketSession(at));
+  const guest=market.action({action:'join'},at);
+  assert.equal(guest.stock[rare.id],1);
+  assert.equal(market.action({action:'buy',item:rare.id,token:guest.token},at+500).stock[rare.id],0);
+  const restarted=data.create();
+  assert.equal(restarted.inventory(at+500).rare,rare.id);
+  assert.equal(restarted.inventory(at+500).stock[rare.id],0);
+
+  const noBonus=ordinary.find(time=>!marketRare(marketSession(time)));
+  const regular=restarted.action({action:'join'},noBonus);
+  assert.equal(regular.rare,null);
+  assert.ok(RARE_SCARVES.every(item=>regular.stock[item.id]===0));
+  assert.equal(restarted.action({action:'buy',item:rare.id,token:regular.token},noBonus+500).status,409);
 });
 
 test('a previously sold daily rare stays sold in its original round', t=>{

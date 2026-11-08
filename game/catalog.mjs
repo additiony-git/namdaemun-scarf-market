@@ -149,31 +149,39 @@ export const LINES = [
   '주머니 가벼워졌지? 어깨도 가벼워진 건 내 덕이라고 해요.',
 ];
 const minute = 60_000;
-const dayLength = 24 * 60 * minute;
-const seoulOffset = 9 * 60 * minute;
+const hourLength = 60 * minute;
+const dayLength = 24 * hourLength;
+const seoulOffset = 9 * hourLength;
 export const seoulDay = now => Math.floor((now + seoulOffset) / dayLength);
 export const seoulDayStart = now => seoulDay(now) * dayLength - seoulOffset;
 export const MARKET_DURATION = 45 * minute;
 export const MARKET_EXIT_MS = 10_000;
-export const MARKET_HOURS = [
+export const FEATURED_MARKETS = [
   { hour: 12, name: '점심 장' },
   { hour: 20, name: '퇴근 장' },
   { hour: 22, name: '야시장' },
 ];
 
-function openings(day) {
-  const midnight = day * dayLength - seoulOffset;
-  return MARKET_HOURS.map(({ hour }) => midnight + hour * 60 * minute);
+// Alternate assortments between openings while preserving the three featured lineups.
+const hourlySlots = [
+  1, 2, 3, 1, 2, 3, 1, 2, 3, 1, 2, 3,
+  1, 2, 3, 1, 2, 3, 1, 3, 2, 1, 3, 2,
+];
+const hourAt = time => Math.floor((time - seoulDayStart(time)) / hourLength);
+export function marketName(time) {
+  const hour = hourAt(time);
+  return FEATURED_MARKETS.find(market => market.hour === hour)?.name ?? hour + '시 장';
 }
+export const isNightMarket = round => hourAt(round * minute) === 22;
 
 export function marketSession(now) {
-  const day = seoulDay(now);
-  const today = openings(day);
-  const index = today.findLastIndex(opening => opening <= now);
-  const previous = index<0 ? openings(day - 1)[2] : today[index];
-  const next = today[index+1] ?? openings(day + 1)[0];
-  const closes = previous + MARKET_DURATION;
-  return { round: previous / minute, slot: index<0?3:index+1, open: now < closes, closes, next, nextSlot: (index+1)%3+1 };
+  const hour = hourAt(now);
+  const start = seoulDayStart(now) + hour * hourLength;
+  const next = start + hourLength;
+  const nextHour = (hour + 1) % hourlySlots.length;
+  const closes = FEATURED_MARKETS.some(market => market.hour === nextHour) ? next - 10 * minute : start + MARKET_DURATION;
+  return { round: start / minute, slot: hourlySlots[hour], open: now < closes, closes,
+    next, nextSlot: hourlySlots[nextHour] };
 }
 
 export function lastMarketClose(now) {
@@ -182,11 +190,18 @@ export function lastMarketClose(now) {
 }
 
 export const RARE_PICKUP_MS = 8_000;
-export function marketRare(session){
-  const day=seoulDay(session.round*minute);
-  const offset=session.testing?0:session.slot-MARKET_HOURS.length;
-  const count=RARE_SCARVES.length;
-  return RARE_SCARVES[((day+offset)%count+count)%count];
+export function marketRare(session) {
+  const start = session.round * minute;
+  const featured = FEATURED_MARKETS.findIndex(({ hour }) => hour === hourAt(start));
+  const count = RARE_SCARVES.length;
+  if (session.testing || featured >= 0) {
+    const offset = session.testing ? 0 : featured - FEATURED_MARKETS.length + 1;
+    return RARE_SCARVES[((seoulDay(start) + offset) % count + count) % count];
+  }
+  // A stable draw gives each ordinary opening a 10% chance, shared by all visitors.
+  let seed = Math.imul(session.round, 0x9e3779b9);
+  seed = (seed ^ (seed >>> 16)) >>> 0;
+  return seed % 10 === 0 ? RARE_SCARVES[Math.floor(seed / 10) % count] : null;
 }
 
 export const chatText = value => typeof value === 'string'

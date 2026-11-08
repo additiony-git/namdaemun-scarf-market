@@ -1,4 +1,4 @@
-import { AVATAR_OPTIONS, CHAT_FEED_MS, CHAT_LIMIT, CHAT_MS, DEFAULT_LOOK, EMPTY_STOCK, JUNK, LINES, LOBBY_CHAT_LIMIT, LOBBY_CHAT_MS, MARKET_CAPACITY, MARKET_EXIT_MS, MARKET_HOURS, MARKET_ITEMS, RARE_PICKUP_MS, ROUND_CURRENCY, SCARVES, SPAWN, WAITING_LINES, avatarOptionsFor, chatText, lastMarketClose, marketRare, marketSession, niceName, normalizeLook, roundCloth, roundStock, seoulDay, seoulDayStart } from './catalog.mjs';
+import { AVATAR_OPTIONS, CHAT_FEED_MS, CHAT_LIMIT, CHAT_MS, DEFAULT_LOOK, EMPTY_STOCK, FEATURED_MARKETS, JUNK, LINES, LOBBY_CHAT_LIMIT, LOBBY_CHAT_MS, MARKET_CAPACITY, MARKET_EXIT_MS, MARKET_ITEMS, RARE_PICKUP_MS, ROUND_CURRENCY, SCARVES, SPAWN, WAITING_LINES, avatarOptionsFor, chatText, isNightMarket, lastMarketClose, marketName, marketRare, marketSession, niceName, normalizeLook, roundCloth, roundStock, seoulDay, seoulDayStart } from './catalog.mjs';
 import { MARKET_API } from './config.mjs';
 import { createWorld, drawAvatarPreview } from './world.mjs';
 
@@ -81,7 +81,7 @@ function demo(action='sync', extra={}) {
   data ??= { player:blank(), basket:[], round:-1, stock:{} };
   const now=Date.now();
   const session=marketSession(now);
-  const rare=session.open?marketRare(session).id:null;
+  const rare=session.open?marketRare(session)?.id??null:null;
   const initial=roundStock(session.slot);
   const day=seoulDay(now);
   if(data.player.name==='새내기 상인')data.player.name='새내기 손님';
@@ -95,7 +95,7 @@ function demo(action='sync', extra={}) {
   const p=data.player;
   const stock={...initial};
   if(data.round===session.round)for(const item of roundCloth(session.slot))stock[item.id]=data.stock[item.id]??item.count;
-  const legacyRareSold=session.slot===MARKET_HOURS.length&&data.rareSoldDay===day;
+  const legacyRareSold=isNightMarket(session.round)&&data.rareSoldDay===day;
   if(rare)stock[rare]=data.rareSoldRound===session.round||legacyRareSold?0:1;
   let event, rarePickup;
   if(action==='profile'){
@@ -132,7 +132,8 @@ function demo(action='sync', extra={}) {
   }
   p.rank=p.collected?1:null;
   write(demoKey,JSON.stringify(data));
-  const used=session.open?roundCloth(session.slot).reduce((n,item)=>n+item.count-stock[item.id],0)+1-stock[rare]:500;
+  const sold=roundCloth(session.slot).reduce((n,item)=>n+item.count-stock[item.id],0)+(rare?1-stock[rare]:0);
+  const used=session.open?sold:500;
   const phase=Math.max(session.open?session.round:session.closes/60_000,seoulDayStart(now)/60_000);
   return {...data,...session,rare,stock:session.open?stock:closedStock,
     online:1,peers:[],ranking:p.collected?[p]:[],now,revision:phase*1000+used,event,currencyGrant,rarePickup};
@@ -352,7 +353,7 @@ function scheduleAt(now){
 }
 function lastCloseAt(now){
   const current=entranceSchedule;
-  if(current?.testing&&now<current.closes)return current.lastClose??lastMarketClose(current.now);
+  if(current&&now<(current.open?current.closes:current.next))return current.lastClose??lastMarketClose(current.now);
   return Math.max(lastMarketClose(now),current?.lastClose??0,current?.testing?current.closes:0);
 }
 function countdownText(ms){
@@ -362,9 +363,9 @@ function countdownText(ms){
 }
 function setText(id,text){const node=$(id);if(node.textContent!==text)node.textContent=text;}
 function showMarketHours(){
-  const rows=MARKET_HOURS.map(({hour,name})=>{
+  const rows=FEATURED_MARKETS.map(({hour,name})=>{
     const time=String(hour).padStart(2,'0')+':00';
-    return '<li><span>'+name+'</span><time datetime="'+time+'">'+time+'</time></li>';
+    return '<li><span>'+name+' · 레어 확정</span><time datetime="'+time+'">'+time+'</time></li>';
   }).join('');
   $('market-hours-list').innerHTML=rows;
   $('watch-hours-list').innerHTML=rows;
@@ -398,7 +399,7 @@ function renderEntrance(session, now){
   else button.removeAttribute('aria-label');
   $('queue-card').dataset.state=waitingPosition?'queue':full?'full':open?'open':'waiting';
   $('queue-full').hidden=closing||!full;
-  setText('queue-heading',closing?'다음 선착순 입장까지':open?(session.testing?'테스트 장 판매 중':session.slot+'차 판매 중'):session.nextSlot+'차 개장까지');
+  setText('queue-heading',closing?'다음 선착순 입장까지':open?(session.testing?'테스트 장':marketName(session.round*60_000))+' 판매 중':marketName(session.next)+' 개장까지');
   const nextDate=seoulDay(session.next)===seoulDay(now)?shortTime.format(session.next):openingTime.format(session.next);
   const marketOnline=marketOccupancy(now);
   const capacity=watchStatus?.marketCapacity??MARKET_CAPACITY;
@@ -513,7 +514,7 @@ function tick(){
   if(transitionPassed&&mode==='online'&&transitionRequested!==transition){transitionRequested=transition;queue(0);}
   const waiting=!inventory.open||displayedAvailability()==='soldout';
   const deadline=waiting?nextSaleAt():transition;
-  $('clock-label').textContent=waiting?(inventory.nextSlot??session.nextSlot)+'차 개장':inventory.testing?'테스트 마감':(inventory.slot??session.slot)+'차 마감';
+  $('clock-label').textContent=waiting?marketName(deadline)+' 개장':inventory.testing?'테스트 마감':marketName(inventory.round*60_000)+' 마감';
   $('countdown').textContent=countdownText(deadline-now);
   $('countdown').title=openingTime.format(deadline)+' (한국 시간)';
 }
@@ -595,13 +596,14 @@ function renderShop(){
   $('shop-summary').hidden=status!=='selling';
   $('shop-filters').hidden=status!=='selling';
   $('round-rare').hidden=status!=='selling'||!inventory?.rare;
-  $('sale-label').textContent=inventory?.testing?'테스트 장 · 선착순 판매':(inventory?.slot??1)+'차 · 선착순 판매';
+  const saleName=inventory?.testing?'테스트 장':inventory&&marketName(inventory.round*60_000);
+  $('sale-label').textContent=saleName?saleName+' · 선착순 판매':'선착순 판매';
   if(!model||!inventory){body.innerHTML='<p class="empty">상품을 불러오고 있어요.</p>';return;}
   const signature=[inventory.revision,model.player.cash,mode,acting,filter,soldoutPreview].join(':');
   if(signature===shopSignature)return;
   shopSignature=signature;
   if(!inventory.open){
-    body.innerHTML='<div class="shop-closed"><span class="closed-tag">NEXT MARKET</span><strong>'+inventory.nextSlot+'차 장 · '+openingTime.format(inventory.next)+'</strong><p>골목에서 채팅하며 기다려요. 개장하면 매대에서 구매할 수 있어요.</p></div>';
+    body.innerHTML='<div class="shop-closed"><span class="closed-tag">NEXT MARKET</span><strong>'+marketName(inventory.next)+' · '+openingTime.format(inventory.next)+'</strong><p>골목에서 채팅하며 기다려요. 개장하면 매대에서 구매할 수 있어요.</p></div>';
     return;
   }
   if(status==='soldout'){
@@ -733,7 +735,7 @@ function renderSpectator(rotateVendor=false){
   if(waitingPosition)setText('watch-position','내 대기 순번 '+waitingPosition+'번');
   const stock=current?watchStatus.stock:closedStock;
   const total=current?MARKET_ITEMS.reduce((sum,item)=>sum+(stock[item.id]??0),0):0;
-  const heading=current?(total?session.slot+'차 장 판매 중':'이번 장 완판'):session.open?'시장 상황 확인 중':'개장 전 · 골목 구경 중';
+  const heading=current?(total?(session.testing?'테스트 장':marketName(session.round*60_000))+' 판매 중':'이번 장 완판'):session.open?'시장 상황 확인 중':'개장 전 · 골목 구경 중';
   const vendorState=current?marketAvailability(watchStatus):session.open?'loading':'waiting';
   const vendorSignature=vendorState+':'+session.next;
   if(rotateVendor||vendorSignature!==watchVendorSignature){
