@@ -526,6 +526,8 @@ kbd { display: inline-grid; place-items: center; min-width: 21px; height: 22px; 
 
 dialog { width: min(500px, calc(100% - 28px)); max-height: 85dvh; padding: 17px; color: var(--text); background: #241b16; border: 1px solid #a3724e; border-radius: 14px; box-shadow: 0 16px 75px #080504b0; }
 #account-modal { max-width: 360px; }
+.account-speech { position: relative; width: 100%; max-width: none; margin: 2px 0 14px; transform: none; }
+.account-speech::after { left: 19px; }
 #google-button { min-height: 40px; }
 .account-privacy { color: var(--gold); font-size: 12px; }
 dialog::backdrop { background: #130e0bc9; backdrop-filter: blur(3px); }

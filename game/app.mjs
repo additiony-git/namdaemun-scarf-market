@@ -214,10 +214,12 @@ function loadGoogle(){
   });
   return googleScript;
 }
-async function openGoogleLogin(){
+async function openGoogleLogin(fromEntry=false){
   if(!loginNeeded()||accountDialog.open)return;
   const attempt=++loginAttempt;
   const guestToken=read(tokenKey);
+  $('entry-login-speech').hidden=!fromEntry;
+  accountDialog.setAttribute('aria-describedby',fromEntry?'entry-login-line':'account-summary');
   $('account-link-note').hidden=!guestToken;
   $('google-button').replaceChildren();
   setText('account-feedback','Google 로그인을 준비하고 있어요.');
@@ -495,7 +497,7 @@ function renderEntrance(session, now){
   const button=$('enter-market');
   button.disabled=Boolean(endpoint&&!authChecked)||closing||cancelQueue||(entryRequested&&!waitingPosition);
   $('watch-market').hidden=!endpoint||Boolean(googleSession);
-  const label=closing?'장 마감 정리 중':loginNeeded()?'Google 로그인하고 입장':waitingPosition?'내 대기 '+waitingPosition+'번'
+  const label=closing?'장 마감 정리 중':waitingPosition?'내 대기 '+waitingPosition+'번'
     :entryRequested?'입장 확인 중':full?'대기자 입장하기':endpoint?'선착순 입장하기':'시장 입장하기';
   setText('enter-market-label',label);
   if(waitingPosition)button.setAttribute('aria-label',label+' · 관람 화면 열기');
@@ -876,7 +878,7 @@ function renderSpectator(rotateVendor=false){
   setText('watch-time',countdownText((session.open?session.closes:session.next)-now));
   $('watch-enter').hidden=Boolean(waitingPosition);
   $('watch-enter').disabled=cancelQueue||entryRequested;
-  const watchEntryLabel=loginNeeded()?'Google 로그인하고 입장':seatsFull()?'대기자 입장하기':'시장 입장하기';
+  const watchEntryLabel=seatsFull()?'대기자 입장하기':'시장 입장하기';
   setText('watch-enter',cancelQueue?'줄서기 취소 중':entryRequested?'입장 확인 중':watchEntryLabel);
   $('watch-refresh').hidden=!endpoint||feed?.readyState===WebSocket.OPEN;
   $('watch-refresh').disabled=Date.now()<watchRefreshAt;
@@ -1433,7 +1435,7 @@ function stopWaiting(){
   queue(0);
 }
 function enterMarket(){
-  if(loginNeeded()){void openGoogleLogin();return;}
+  if(loginNeeded()){void openGoogleLogin(true);return;}
   const now=Date.now()+timeOffset;
   if(now<lastCloseAt(now)+MARKET_EXIT_MS)return;
   if(waitingPosition){openSpectator();return;}
