@@ -374,11 +374,7 @@ function renderEntrance(session, now){
   const open=session.open&&now<session.closes;
   const full=seatsFull();
   const button=$('enter-market');
-  const watchButton=$('spectate-market');
-  const watchHadFocus=document.activeElement===watchButton;
   button.disabled=cancelQueue||(entryRequested&&!waitingPosition);
-  watchButton.hidden=full;
-  if(full&&watchHadFocus&&!button.disabled)button.focus({preventScroll:true});
   const label=waitingPosition?'내 대기 '+waitingPosition+'번'
     :entryRequested?'입장 확인 중':full?'대기자 입장하기':endpoint?'선착순 입장하기':'시장 입장하기';
   setText('enter-market-label',label);
@@ -772,9 +768,7 @@ function closeSpectator(){
   $('world').setAttribute('aria-hidden','true');
   world?.leaveMarket();
   $('entrance').hidden=false;
-  const watchButton=$('spectate-market');
-  const returnFocus=watchButton.hidden?$('enter-market'):watchButton;
-  returnFocus.focus({preventScroll:true});
+  $('enter-market').focus({preventScroll:true});
   if(!waitingPosition&&endpoint)queue(0);
 }
 function toast(message){
@@ -1206,7 +1200,6 @@ $('enter-market').onclick=()=>{
   if(seatsFull()&&!waitingPosition)openSpectator();
   enterMarket();
 };
-$('spectate-market').onclick=()=>openSpectator();
 $('watch-exit').onclick=closeSpectator;
 $('watch-enter').onclick=enterMarket;
 $('watch-cancel').onclick=()=>{
