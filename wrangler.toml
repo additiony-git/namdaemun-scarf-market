@@ -8,6 +8,7 @@ workers_dev = true
 PAGES_ORIGIN = "https://additiony-git.github.io"
 PAGES_CUSTOM_ORIGIN = "https://market.setting41.com"
 REQUIRE_GOOGLE_LOGIN = "true"
+GOOGLE_CLIENT_ID = "353106051062-4mqidkme2i0jmbqf0671v8c16aj3846d.apps.googleusercontent.com"
 
 [[durable_objects.bindings]]
 name = "MARKET_ROOM"
