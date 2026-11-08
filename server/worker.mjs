@@ -29,13 +29,13 @@ export class MarketRoom extends DurableObject {
       return new Response(null, { status: 101, webSocket: client });
     }
     return endpoint(this.market, request, this.env.PAGES_ORIGIN, request.headers.get('CF-Connecting-IP') || 'unknown',
-      (action, { now, stock, goods, revision, round, slot, nextSlot, next, open, closes, speech, testing, rare, dailyRareSold, room, marketOnline, marketCapacity, rarePickup, player }) => {
+      (action, { now, stock, goods, revision, round, slot, nextSlot, next, open, closes, speech, testing, rare, dailyRareSold, room, marketOnline, marketCapacity, rarePickup, player, queueAdvanced }) => {
         const key = [round, open, revision, marketOnline].join(':');
         const changed = key !== this.lastMarketStatus;
         this.lastMarketStatus = key;
         const pickup = action === 'buy' && rarePickup?.id === player.id && rarePickup.sentAt === now ? rarePickup : null;
         const checkCrowd = changed || pickup || (room === 'market' && now - (this.lastCrowdAt ?? 0) >= 2000);
-        if (!changed && action !== 'chat' && !checkCrowd) return;
+        if (!changed && action !== 'chat' && !checkCrowd && !queueAdvanced) return;
         const status = changed ? JSON.stringify({ type: 'market-status', now, stock, goods, revision, round, slot, nextSlot, next, open, closes, testing, rare, dailyRareSold, marketOnline, marketCapacity }) : null;
         const chat = action === 'chat' ? JSON.stringify({ type: 'chat', speech }) : null;
         let crowd;
@@ -52,6 +52,7 @@ export class MarketRoom extends DurableObject {
             const state = socketState(socket);
             if (status) socket.send(status);
             if (chat && state.room === room) socket.send(chat);
+            if (queueAdvanced && state.room === 'lobby') socket.send('{"type":"queue-advanced"}');
             if (crowd && state.watching) socket.send(crowd);
             if (pickup && (state.watching || state.room === 'market')) {
               const { id, watchId, ...details } = pickup;

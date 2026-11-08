@@ -45,9 +45,10 @@ function read(key){try{return localStorage.getItem(key);}catch{return temporary.
 function write(key,value){temporary.set(key,value);try{localStorage.setItem(key,value);}catch{/* keep this session playable */}}
 const blank = () => ({ id:'solo', name:'새내기 손님', cash:0, collected:0, rank:null });
 let token=read(tokenKey), model, world, mode=endpoint?'loading':'solo', modal='', busy=false, timeOffset=0, misses=0, syncTimer;
-let enteredMarket=false, entryRound, waitingPosition=0, cancelQueue=false, roomRevision=0;
+let enteredMarket=false, entryRequested=false, waitingPosition=0, cancelQueue=false, roomRevision=0;
 let watchingMarket=false;
 let feedWatching=false;
+let queueAdvancePending=false, marketPositionSent;
 let watchStatus, watchSignature='', watchRefreshAt=0;
 let entranceSchedule;
 let muted=true, audioCtx, toastTimer, acting=false;
@@ -67,6 +68,7 @@ const dialog=$('modal');
 const activeRoom=()=>enteredMarket?'market':'lobby';
 const lobbySyncDelay=endpoint.startsWith('https://')?240_000:5_000;
 const marketSyncDelay=6_000;
+const idleMarketSyncDelay=40_000;
 const watchSyncDelay=Math.min(lobbySyncDelay,15_000);
 function demo(action='sync', extra={}) {
   let data;
@@ -106,7 +108,7 @@ function demo(action='sync', extra={}) {
   if(action==='buy'){
     const item=MARKET_ITEMS.find(i=>i.id===extra.item);
     if(!item) throw Error('매대에 없는 물건이에요.');
-    if(!session.open)throw Error('장이 닫혔어요. 다음 개장 시간을 확인해 주세요.');
+    if(!session.open)throw Error('개장하면 상품을 구매할 수 있어요.');
     if(!initial[item.id]&&item.id!==rare)throw Error('이 상품은 이번 장에서 판매하지 않아요.');
     if(!stock[item.id]) throw Error('이번 장에는 품절이에요. 다음 장을 기다려 주세요.');
     if(p.cash<item.price) throw Error('지역화폐가 부족해요. 다음 장에 입장하면 '+format(ROUND_CURRENCY)+'원을 받아요.');
@@ -130,9 +132,11 @@ function demo(action='sync', extra={}) {
     online:1,peers:[],ranking:p.collected?[p]:[],now,dailyRareSold:data.rareSoldDay===day,revision:phase*1000+used,event,currencyGrant,rarePickup};
 }
 async function request(action, extra={}, room=activeRoom()){
+  const pos=room==='market'?world?.position()??SPAWN:SPAWN;
+  if(room==='market'&&enteredMarket)marketPositionSent={...pos,at:Date.now()};
   const response=await fetch(endpoint,{
     method:'POST', headers:{'Content-Type':'text/plain;charset=UTF-8'},
-    body:JSON.stringify({action, token, room, watch:watchingMarket&&!feedWatching, pos:room==='market'?world?.position()??SPAWN:SPAWN, ...extra}), signal:AbortSignal.timeout(6000),
+    body:JSON.stringify({action, token, room, watch:watchingMarket&&!feedWatching, pos, ...extra}), signal:AbortSignal.timeout(6000),
   });
   let data;
   try {data=await response.json();}catch{throw Error('장터 서버에 연결할 수 없어요.');}
@@ -283,6 +287,10 @@ function connectFeed(){
       const update=JSON.parse(data);
       if(room==='lobby'){
         if(update.type==='chat')showLobbyChat(update.speech);
+        if(update.type==='queue-advanced'&&waitingPosition){
+          queueAdvancePending=true;
+          if(!busy)queue(0);
+        }
         if(watchingMarket&&update.type==='market-crowd')setWatchCrowd(update.crowd);
         if(watchingMarket&&update.type==='rare-pickup')showRarePickup(update.pickup);
         if(update.type==='market-status'){
@@ -294,7 +302,11 @@ function connectFeed(){
         }
       }else if(update.type==='chat')showChat(update.speech);
       else if(update.type==='rare-pickup')showRarePickup(update.pickup);
-      else setInventory(update);
+      else if(update.type==='market-status'){
+        const opened=inventory&&!inventory.open&&update.open;
+        setInventory(update);
+        if(opened&&!busy)queue(0);
+      }
     } catch { /* wait for the next server sync */ }
   };
   socket.onclose=()=>{
@@ -302,7 +314,7 @@ function connectFeed(){
     feed=null;
     feedWatching=false;
     retryFeedAt=Date.now()+10_000;
-    if(watchingMarket&&!busy)queue(watchSyncDelay);
+    if((watchingMarket||entryRequested)&&!busy)queue(watchSyncDelay);
   };
 }
 function status() {
@@ -354,19 +366,19 @@ function seatsFull(){
 }
 function renderEntrance(session, now){
   const open=session.open&&now<session.closes;
-  const full=open&&watchStatus?.round===session.round&&seatsFull();
+  const full=seatsFull();
   const button=$('enter-market');
-  button.disabled=!open||cancelQueue||(entryRound!==undefined&&!waitingPosition);
+  button.disabled=cancelQueue||(entryRequested&&!waitingPosition);
   const label=waitingPosition?'대기 '+waitingPosition+'번 · 구경하기'
-    :entryRound!==undefined?'입장 확인 중':full?'줄서기':open?'시장입장하기':'시장 준비 중';
+    :entryRequested?'입장 확인 중':full?'줄서기':open?'시장입장하기':'미리 입장하기';
   setText('enter-market-label',label);
   $('queue-card').dataset.state=waitingPosition?'queue':full?'full':open?'open':'waiting';
   setText('queue-heading',open?(session.testing?'테스트 장 판매 중':session.slot+'차 판매 중'):session.nextSlot+'차 개장까지');
   const nextDate=seoulDay(session.next)===seoulDay(now)?shortTime.format(session.next):openingTime.format(session.next);
-  const marketOnline=watchStatus?.round===session.round?watchStatus?.marketOnline??0:0;
+  const marketOnline=watchStatus?.marketOnline??0;
   const capacity=watchStatus?.marketCapacity??MARKET_CAPACITY;
-  const openDetail=endpoint?'입장 '+marketOnline+'/'+capacity+'명 · '+(full?'줄서기 가능':'선착순 입장'):'혼자 체험';
-  setText('queue-detail',open?openDetail:'개장 '+nextDate+' · 한국 시간');
+  const entryDetail=endpoint?'입장 '+marketOnline+'/'+capacity+'명':'혼자 체험';
+  setText('queue-detail',open?entryDetail+' · '+(full?'줄서기 가능':'선착순 입장'):'개장 '+nextDate+' · '+entryDetail);
   setText('queue-countdown',countdownText((open?session.closes:session.next)-now));
 }
 function returnToEntrance(message='시작 화면으로 돌아왔어요.'){
@@ -401,13 +413,6 @@ function returnToEntrance(message='시작 화면으로 돌아왔어요.'){
 function tick(){
   const now=Date.now()+timeOffset, session=scheduleAt(now);
   if(!enteredMarket){
-    if(entryRound!==undefined&&(!session.open||session.round!==entryRound)){
-      stopWaiting();
-      const message='장이 마감되어 이번 줄서기가 끝났어요.';
-      setText('entrance-notice',message);
-      $('entrance-notice').hidden=false;
-      if(watchingMarket)showWatchFeedback(message);
-    }
     renderEntrance(session,now);
     const boundary=entranceSchedule?.open?entranceSchedule.closes:entranceSchedule?.next;
     if(endpoint&&boundary<=now&&transitionRequested!==boundary){
@@ -421,6 +426,11 @@ function tick(){
     return;
   }
   if(!inventory)return;
+  if(endpoint&&!session.open&&mode==='online'&&!busy&&!document.hidden&&
+      Date.now()-(marketPositionSent?.at??0)>=marketSyncDelay){
+    const pos=world?.position();
+    if(pos&&(!marketPositionSent||Math.hypot(pos.x-marketPositionSent.x,pos.z-marketPositionSent.z)>=.1))queue(0);
+  }
   const transition=inventory.open?inventory.closes:inventory.next;
   const transitionPassed=transition<=now;
   if(transitionPassed&&mode==='solo'){setModel(demo());return;}
@@ -525,7 +535,7 @@ function renderShop(){
   if(signature===shopSignature)return;
   shopSignature=signature;
   if(!inventory.open){
-    body.innerHTML='<div class="shop-closed"><span class="closed-tag">NEXT MARKET</span><strong>'+inventory.nextSlot+'차 장 · '+openingTime.format(inventory.next)+'</strong><p>각 장은 45분 동안 열려요. 개장 10분 전에는 시작 화면에서 줄을 서요.</p></div>';
+    body.innerHTML='<div class="shop-closed"><span class="closed-tag">NEXT MARKET</span><strong>'+inventory.nextSlot+'차 장 · '+openingTime.format(inventory.next)+'</strong><p>골목에서 채팅하며 기다려요. 개장하면 매대에서 구매할 수 있어요.</p></div>';
     return;
   }
   if(status==='soldout'){
@@ -650,19 +660,19 @@ function renderSpectator(){
   const now=Date.now()+timeOffset;
   const session=scheduleAt(now);
   const current=watchStatus?.open&&session.open&&watchStatus.round===session.round;
-  const full=current&&seatsFull();
+  const full=seatsFull();
   const count=watchStatus?.marketOnline??0;
   const capacity=watchStatus?.marketCapacity??MARKET_CAPACITY;
   $('watch-queue').hidden=!waitingPosition;
   if(waitingPosition)setText('watch-position','내 대기 순번 '+waitingPosition+'번');
   const stock=current?watchStatus.stock:closedStock;
   const total=current?MARKET_ITEMS.reduce((sum,item)=>sum+(stock[item.id]??0),0):0;
-  const heading=current?(total?session.slot+'차 장 판매 중':'이번 장 완판'):session.open?'시장 상황 확인 중':'다음 장 준비 중';
+  const heading=current?(total?session.slot+'차 장 판매 중':'이번 장 완판'):session.open?'시장 상황 확인 중':'개장 전 · 골목 구경 중';
   setText('watch-heading',heading+(endpoint?' · '+count+'/'+capacity+'명':''));
   setText('watch-time',countdownText((session.open?session.closes:session.next)-now));
-  $('watch-enter').disabled=!session.open||cancelQueue||(entryRound!==undefined&&!waitingPosition);
+  $('watch-enter').disabled=cancelQueue||(entryRequested&&!waitingPosition);
   setText('watch-enter',waitingPosition?'줄서기 취소':cancelQueue?'줄서기 취소 중'
-    :entryRound!==undefined?'입장 확인 중':full?'줄서기':session.open?'시장입장하기':'시장 준비 중');
+    :entryRequested?'입장 확인 중':full?'줄서기':session.open?'시장입장하기':'미리 입장하기');
   $('watch-refresh').hidden=!endpoint||feed?.readyState===WebSocket.OPEN;
   $('watch-refresh').disabled=Date.now()<watchRefreshAt;
   const signature=[session.round,session.open,watchStatus?.revision,current].join(':');
@@ -827,7 +837,7 @@ function line(){
   reopen.hidden=state!=='soldout'&&state!=='waiting';
   let message;
   if(state==='soldout')message='이건 아닌 거 같아… 벌써 다 팔렸네! 다음 장에 다시 와요!';
-  else if(state==='waiting')message='지금은 장 준비 중이여. 다음 장에 다시 와요!';
+  else if(state==='waiting')message='아직 장 준비 중이여. 골목에서 얘기 나누면서 기다려요!';
   else{
     lastLine=(lastLine+1+Math.floor(Math.random()*(LINES.length-1)))%LINES.length;
     message=LINES[lastLine];
@@ -857,10 +867,11 @@ async function connect(){
   if(!endpoint)return;
   if(busy){queue(800);return;}
   if(document.hidden){queue(5000);return;}
-  const requestedRound=entryRound;
-  const room=requestedRound!==undefined?'market':activeRoom(), revision=roomRevision;
-  const extra={entryRound:requestedRound,cancelQueue};
-  if(requestedRound!==undefined&&!watchingMarket)extra.watch=true;
+  const requestingEntry=entryRequested;
+  const room=requestingEntry?'market':activeRoom(), revision=roomRevision;
+  queueAdvancePending=false;
+  const extra={cancelQueue};
+  if(requestingEntry&&!watchingMarket)extra.watch=true;
   busy=true;
   let retryDelay;
   try{
@@ -871,11 +882,11 @@ async function connect(){
     const wasWaiting=Boolean(waitingPosition);
     cancelQueue=false;
     waitingPosition=data.queuePosition??0;
-    entryRound=waitingPosition?data.round:undefined;
+    entryRequested=Boolean(waitingPosition);
     if(!enteredMarket&&data.room==='market')showMarket(data);
     else if(enteredMarket&&data.room==='lobby')returnToEntrance(admissionMessage(data));
     else if(!wasWaiting&&waitingPosition)openSpectator();
-    else if(requestedRound!==undefined&&data.admission==='closed'){
+    else if(requestingEntry&&data.admission==='closed'){
       setText('entrance-notice',admissionMessage(data));
       $('entrance-notice').hidden=false;
       if(watchingMarket)showWatchFeedback(admissionMessage(data));
@@ -891,7 +902,7 @@ async function connect(){
     if(dialog.open&&modal==='profile')renderModal();
     retryDelay=room==='lobby'&&!watchingMarket&&!cancelQueue&&endpoint.startsWith('https://')
       ?Math.min(lobbySyncDelay,30_000*misses):Math.min(15_000,3000*misses);
-    if(requestedRound!==undefined&&!waitingPosition){
+    if(requestingEntry&&!waitingPosition){
       const message='입장 요청을 다시 연결하고 있어요.';
       setText('entrance-notice',message);
       $('entrance-notice').hidden=false;
@@ -899,7 +910,10 @@ async function connect(){
     }
   }finally{
     busy=false;
-    const next=enteredMarket?marketSyncDelay:entryRound!==undefined||(watchingMarket&&!feedWatching)?watchSyncDelay:lobbySyncDelay;
+    let next=lobbySyncDelay;
+    if(enteredMarket)next=scheduleAt(Date.now()+timeOffset).open?marketSyncDelay:idleMarketSyncDelay;
+    else if((entryRequested||watchingMarket)&&feed?.readyState!==WebSocket.OPEN)next=watchSyncDelay;
+    if(waitingPosition&&queueAdvancePending&&!retryDelay)next=0;
     queue(revision===roomRevision?(retryDelay??next):0);
   }
 }
@@ -1089,7 +1103,7 @@ function admissionMessage(data){
   return data.admission==='full'?'정원이 가득 찼어요. 구경하며 빈자리를 기다려 주세요.':'장이 닫혔어요. 다음 개장 시각을 확인해 주세요.';
 }
 function stopWaiting(){
-  entryRound=undefined;
+  entryRequested=false;
   waitingPosition=0;
   cancelQueue=true;
   roomRevision++;
@@ -1097,10 +1111,10 @@ function stopWaiting(){
 }
 function enterMarket(){
   if(waitingPosition){openSpectator();return;}
-  const now=Date.now()+timeOffset, session=scheduleAt(now);
-  if(enteredMarket||entryRound!==undefined||cancelQueue||!session.open)return;
+  if(enteredMarket||entryRequested||cancelQueue)return;
+  const session=scheduleAt(Date.now()+timeOffset);
   if(!endpoint){showMarket(session);setModel(demo());return;}
-  entryRound=session.round;
+  entryRequested=true;
   roomRevision++;
   $('entrance-notice').hidden=true;
   if(watchingMarket)showWatchFeedback();

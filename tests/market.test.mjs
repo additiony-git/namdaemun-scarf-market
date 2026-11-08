@@ -133,18 +133,17 @@ test('the last seat admits one contender and the other can watch inventory witho
   const expired=market.marketStatus(start+31_000);
   assert.equal(expired.marketOnline,0);
   const closed=sync(waiting,'market',start+MARKET_DURATION);
-  assert.equal(closed.admission,'closed');
-  assert.equal(closed.marketOnline,0);
+  assert.equal(closed.room,'market');
+  assert.equal(closed.currencyGrant,null);
+  assert.equal(closed.marketOnline,1);
 });
 
-test('open-market queues survive restarts, prevent passing the first guest, and drop canceled or expired requests', t=>{
+test('queues survive restarts, prevent passing the first guest, and drop canceled or expired requests', t=>{
   const data=setup();t.after(data.close);
   let market=data.create();
   const join=(i,room,at=start)=>market.action({action:'join',room},at,'queue-'+i);
   const sync=(guest,at,extra={})=>market.action({action:'sync',room:'market',token:guest.token,...extra},at);
-  const early=join('early','market',start-1);
-  assert.equal(early.admission,'closed');
-  assert.equal(early.queuePosition,null);
+  const early=join('early','lobby',start-1);
   for(let i=0;i<MARKET_CAPACITY;i++)assert.equal(join(i,'market').room,'market');
   const first=join('first','market',start+1);
   const second=join('second','market',start+1);
@@ -155,9 +154,10 @@ test('open-market queues survive restarts, prevent passing the first guest, and 
   assert.equal(later.queuePosition,3);
   assert.equal(sync(second,start+3).queuePosition,2);
   assert.equal(sync(first,start+4).currencyGrant,ROUND_CURRENCY);
-  assert.equal(sync(second,start+5,{room:'lobby',cancelQueue:true}).queuePosition,null);
+  const canceled=sync(second,start+5,{room:'lobby',cancelQueue:true});
+  assert.equal(canceled.queuePosition,null);
+  assert.equal(canceled.queueAdvanced,true);
   assert.equal(sync(later,start+6).room,'market');
-  assert.equal(sync(early,evening,{entryRound:marketSession(start).round}).admission,'closed');
   assert.equal(sync(early,evening).room,'market');
 
   for(let i=1;i<MARKET_CAPACITY;i++)join('evening-'+i,'market',evening);
@@ -165,8 +165,55 @@ test('open-market queues survive restarts, prevent passing the first guest, and 
   const staying=join('staying','market',evening+1);
   assert.equal(disconnected.queuePosition,1);
   assert.equal(staying.queuePosition,2);
-  assert.equal(sync(staying,evening+29_000).queuePosition,2);
-  assert.equal(sync(staying,evening+61_000).room,'market');
+  assert.equal(sync(staying,evening+240_000).queuePosition,2);
+  assert.equal(sync(staying,evening+271_000).room,'market');
+});
+
+test('the closed market supports entry, chat and spectating, and seats and the queue carry through opening', t=>{
+  const data=setup();t.after(data.close);
+  const market=data.create();
+  const join=(id,at,extra={})=>market.action({action:'join',...extra},at,'preopen-'+id);
+  const action=(guest,action,at,extra={})=>market.action({action,token:guest.token,...extra},at);
+  const earlyAt=start-40*60_000;
+  const early=join('early',earlyAt);
+  assert.equal(early.room,'market');
+  assert.equal(early.open,false);
+  assert.equal(early.player.cash,0);
+  assert.equal(early.currencyGrant,null);
+  const earlyPurchase=action(early,'buy',earlyAt+1000,{item:'scarf'});
+  assert.equal(earlyPurchase.status,409);
+  assert.match(earlyPurchase.error,/개장하면/);
+
+  const before=start-30_000;
+  action(early,'sync',before,{pos:{x:-1,z:2}});
+  const seats=Array.from({length:MARKET_CAPACITY-1},(_,i)=>join(i,before));
+  const queued=join('queued',before+1,{watch:true});
+  assert.equal(queued.room,'lobby');
+  assert.equal(queued.queuePosition,1);
+  assert.equal(queued.currencyGrant,null);
+  assert.equal(queued.crowd.length,MARKET_CAPACITY);
+  const avatar=queued.crowd.find(person=>person.x===-1&&person.z===2);
+  const message=action(early,'chat',before+2,{text:'개장 기다리는 중이에요.'});
+  assert.equal(message.speech.text,'개장 기다리는 중이에요.');
+  const listening=action(seats[0],'sync',before+3);
+  assert.equal(listening.peers.find(peer=>peer.id===early.player.id).speech.text,message.speech.text);
+  assert.equal(action(queued,'chat',before+4,{text:'시장 채팅'}).status,409);
+
+  const opened=action(early,'sync',start);
+  assert.equal(opened.room,'market');
+  assert.equal(opened.marketOnline,MARKET_CAPACITY);
+  assert.equal(opened.currencyGrant,ROUND_CURRENCY);
+  assert.equal(opened.stock.scarf,firstStock.scarf);
+  assert.equal(action(early,'sync',start+1).currencyGrant,null);
+  const stillWaiting=action(queued,'sync',start+2,{watch:true});
+  assert.equal(stillWaiting.queuePosition,1);
+  assert.equal(stillWaiting.currencyGrant,null);
+  assert.ok(stillWaiting.crowd.some(person=>person.id===avatar.id));
+  action(seats[0],'sync',start+3,{room:'lobby'});
+  const admitted=action(queued,'sync',start+4);
+  assert.equal(admitted.room,'market');
+  assert.equal(admitted.currencyGrant,ROUND_CURRENCY);
+  assert.equal(admitted.queuePosition,null);
 });
 
 test('two shoppers share one limited stock; only the first gets the last item, then the next round refills', async t=>{
