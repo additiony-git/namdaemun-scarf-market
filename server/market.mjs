@@ -1,7 +1,8 @@
-import { CHAT_FEED_MS, CHAT_LIMIT, CHAT_MS, EMPTY_STOCK, JUNK, LOBBY_CHAT_LIMIT, LOBBY_CHAT_MS, MAP, MARKET_ITEMS, ROUND_CURRENCY, SPAWN, chatText, fit, marketRare, marketSession, niceName, normalizeLook, roundCloth, roundStock, seoulDay, seoulDayStart } from '../game/catalog.mjs';
+import { CHAT_FEED_MS, CHAT_LIMIT, CHAT_MS, EMPTY_STOCK, JUNK, LOBBY_CHAT_LIMIT, LOBBY_CHAT_MS, MAP, MARKET_CAPACITY, MARKET_ITEMS, ROUND_CURRENCY, SPAWN, chatText, fit, marketQueue, marketRare, marketSession, niceName, normalizeLook, roundCloth, roundStock, seoulDay, seoulDayStart } from '../game/catalog.mjs';
 
 const defaultName = '새내기 손님';
 const presenceMs = 30_000;
+const lobbyPresenceMs = 270_000;
 const tradeMs = 350;
 const chatCooldown = 1800;
 const minute = 60_000;
@@ -43,9 +44,20 @@ export class Market {
     return ROUND_CURRENCY;
   }
   prune(now) {
-    for (const [id, p] of this.people) if (now - p.seen > presenceMs) this.people.delete(id);
+    for (const [id, p] of this.people) {
+      if (now - p.seen > (p.room === 'lobby' ? lobbyPresenceMs : presenceMs)) this.people.delete(id);
+    }
     for (const [ip, p] of this.joins) if (now - p.at > 60_000) this.joins.delete(ip);
     this.lobbyMessages = this.lobbyMessages.filter(message => now - message.sentAt < LOBBY_CHAT_MS);
+  }
+  marketCount() {
+    let count = 0;
+    for (const person of this.people.values()) if (person.room === 'market') count++;
+    return count;
+  }
+  marketStatus(now) {
+    this.prune(now);
+    return { now, ...this.inventory(now), marketOnline: this.marketCount(), marketCapacity: MARKET_CAPACITY };
   }
   session(now) {
     const regular = marketSession(now);
@@ -83,7 +95,7 @@ export class Market {
   }
   action(body, now = Date.now(), ip = 'local') {
     const { action, token, pos } = body ?? {};
-    const room = body?.room === 'lobby' ? 'lobby' : 'market';
+    const requestedRoom = body?.room === 'lobby' ? 'lobby' : 'market';
     this.prune(now);
     return this.transaction(() => {
       let player = typeof token === 'string' && /^[0-9a-f]{48}$/.test(token)
@@ -98,12 +110,27 @@ export class Market {
         this.query('INSERT INTO players (id, token, name, cash) VALUES (?, ?, ?, ?)', player.id, issued, player.name, player.cash);
       }
       if (!player) return problem('장터에 다시 입장해 주세요.', 401);
+      if (!['join', 'sync', 'rename', 'profile', 'buy', 'chat'].includes(action)) {
+        return problem('알 수 없는 거래입니다.');
+      }
       const session = this.session(now);
       const { round, open } = session;
-      const currencyGrant = room === 'market' && open && (action === 'join' || action === 'sync')
+      const previous = this.people.get(player.id) ?? SPAWN;
+      const connecting = action === 'join' || action === 'sync';
+      const hasSeat = previous.room === 'market';
+      let admission;
+      if (requestedRoom === 'market') {
+        if (!open && (!hasSeat || now - session.closes >= 5 * 60_000 || marketQueue(session, now).active)) admission = 'closed';
+        else if (!hasSeat && this.marketCount() >= MARKET_CAPACITY) admission = 'full';
+        else if (!hasSeat && !connecting) admission = 'enter-first';
+        if (admission && !connecting) {
+          return problem(admission === 'closed' ? '장이 닫혔어요. 다음 개장 시간을 확인해 주세요.' : '시장에 입장한 뒤 이용해 주세요.', 409);
+        }
+      }
+      const room = admission ? 'lobby' : requestedRoom;
+      const currencyGrant = room === 'market' && open && connecting
         ? this.issueRoundCurrency(player, round) ?? null
         : null;
-      const previous = this.people.get(player.id) ?? SPAWN;
       const x = fit(pos?.x, MAP.minX, MAP.maxX, previous.x);
       const z = fit(pos?.z, MAP.minZ, MAP.maxZ, previous.z);
       let event;
@@ -172,8 +199,6 @@ export class Market {
           this.lobbyMessages.push(speech);
           if (this.lobbyMessages.length > LOBBY_CHAT_LIMIT) this.lobbyMessages.shift();
         }
-      } else if (action !== 'join' && action !== 'sync') {
-        return problem('알 수 없는 거래입니다.');
       }
       this.people.set(player.id, { id: player.id, name: player.name, room, x, z, seen: now, speech, lastChat, look });
       const roomPeople = [...this.people.values()].filter(person => person.room === room);
@@ -182,7 +207,8 @@ export class Market {
       const outfits = Object.fromEntries(this.query('SELECT character, hat, coat, bag, scarf FROM character_outfits WHERE player = ?', player.id).map(row=>[row.character,normalizeLook(row)]));
       outfits[look.character] = look;
       return {
-        token: issued, event, room, currencyGrant, speech: speech?.sentAt + CHAT_FEED_MS > now ? speech : undefined, now, ...this.inventory(now, session),
+        token: issued, event, room, admission, currencyGrant, speech: speech?.sentAt + CHAT_FEED_MS > now ? speech : undefined, now, ...this.inventory(now, session),
+        marketOnline: this.marketCount(), marketCapacity: MARKET_CAPACITY,
         player: { id: player.id, name: player.name, cash: player.cash, sold: player.sold, collected: player.collected, rank: myRank, look, outfits },
         basket: this.query('SELECT item, qty, updated FROM basket WHERE player = ? ORDER BY updated DESC, item', player.id),
         ranking, online: roomPeople.length,
@@ -202,8 +228,7 @@ export function endpoint(market, request, allowedOrigin = '', ip = 'local', publ
   const send = (body, status = 200) => new Response(JSON.stringify(body), { status, headers });
   if (!permitted) return send({ error: '이 사이트에서는 장터에 연결할 수 없어요.' }, 403);
   if (request.method === 'GET') {
-    const now=Date.now();
-    return send({now,...market.session(now)});
+    return send(market.marketStatus(Date.now()));
   }
   if (request.method !== 'POST') return send({ error: 'GET과 POST 요청만 받습니다.' }, 405);
   return (async () => {
@@ -224,7 +249,7 @@ export function endpoint(market, request, allowedOrigin = '', ip = 'local', publ
       try { data = JSON.parse(raw); } catch { return send({ error: '요청을 읽을 수 없어요.' }, 400); }
       const result = market.action(data, Date.now(), ip);
       if (result.error) return send({ error: result.error }, result.status);
-      if (data.action === 'buy' || data.action === 'chat') publish?.(data.action, result);
+      publish?.(data.action, result);
       return send(result);
     } catch (error) {
       console.error('Market request failed:', error?.message);

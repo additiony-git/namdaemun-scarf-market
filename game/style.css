@@ -52,15 +52,15 @@ canvas { position: absolute; inset: 0; display: block; width: 100%; height: 100%
   filter: drop-shadow(0 .13em .11em #220910d9) drop-shadow(0 .02em .02em #1b0d13);
   font-size: var(--logo-size);
 }
-.entrance-logo::before, .entrance-logo::after {
+.entrance h1::before, .entrance h1::after {
   content: ""; position: absolute; bottom: .23em; width: .43em; height: .34em;
   background: linear-gradient(#ffe593, #f5a536 50%, #a64727 51%, #7d2c22);
   clip-path: polygon(0 50%, 31% 0, 100% 0, 100% 24%, 43% 24%, 24% 50%, 43% 76%, 100% 76%, 100% 100%, 31% 100%);
   left: -.47em;
 }
-.entrance-logo::after { left: auto; right: -.47em; transform: scaleX(-1); }
+.entrance h1::after { left: auto; right: -.47em; transform: scaleX(-1); }
 .entrance h1 {
-  margin: 0; font-size: inherit; font-weight: 1000; line-height: .94; letter-spacing: -.085em;
+  position: relative; margin: 0; font-size: inherit; font-weight: 1000; line-height: .94; letter-spacing: -.085em;
   white-space: nowrap;
 }
 .entrance h1 span {
@@ -72,6 +72,11 @@ canvas { position: absolute; inset: 0; display: block; width: 100%; height: 100%
   margin-top: .03em; color: #ffc95d; font-size: 1em;
   -webkit-text-stroke-color: #35141b;
   text-shadow: 0 -.02em #ffe8aa, 0 .05em #f08b32, 0 .08em #c05022, 0 .12em #892f20, 0 .16em #531a1e, 0 .19em #2f131c;
+}
+.beta-badge {
+  display: table; margin: 15px auto 0; padding: 4px 9px; border: 1px solid #f5bf68a0; border-radius: 5px;
+  color: #ffe5b6; background: #3a2619; font-size: 11px; font-weight: 900; letter-spacing: .09em;
+  line-height: 1.2;
 }
 .entrance-deck {
   display: grid; justify-items: center; gap: 9px; width: min(610px, 100%);
@@ -100,6 +105,7 @@ canvas { position: absolute; inset: 0; display: block; width: 100%; height: 100%
 #queue-countdown { font-size: clamp(18px, 4.6vw, 24px); font-variant-numeric: tabular-nums; color: #f8c667; white-space: nowrap; }
 .queue-card[data-state=queue] { border-color: #ffcf79; box-shadow: 0 0 18px #f6b0475c; }
 .queue-card[data-state=open] #queue-countdown { color: #c9dea5; }
+.queue-card[data-state=full] { border-color: #e8a473; }
 .queue-card[data-state=preparing] #queue-countdown { color: #c5b09c; }
 .entrance-notice {
   margin: 0; padding: 5px 9px; border-radius: 6px; background: #2d1c13f5; color: #ffe5b2;
@@ -118,6 +124,16 @@ canvas { position: absolute; inset: 0; display: block; width: 100%; height: 100%
 .enter-market:active { transform: translateY(2px); }
 .enter-market:disabled { opacity: 1; filter: none; transform: none; background: #4d392b; color: #e8c9a1; text-shadow: none; border-color: #9a7853; box-shadow: 0 4px #261a14, 0 7px 20px #180c08a0; }
 .enter-market i { position: absolute; right: 14px; top: 50%; transform: translateY(-50%); }
+.entrance-actions { display: grid; grid-template-columns: 1fr auto 1fr; gap: 8px; width: 100%; }
+.entrance-actions .enter-market { grid-column: 2; }
+.watch-market { justify-self: start; padding: 7px 11px; font-size: 13px; font-weight: 850; white-space: nowrap; }
+.watch-market i { color: var(--gold); }
+.watch-summary { display: flex; justify-content: space-between; gap: 8px; margin: 3px 0 9px; color: var(--gold); font-size: 13px; }
+.watch-stock { max-height: 43dvh; overflow: auto; }
+.watch-stock .item { padding: 6px 0; }
+.watch-stock .item-pic { width: 30px; height: 30px; }
+.watch-soldout { color: #e6a68b; }
+.watch-market-refresh { margin-top: 9px; }
 @media (max-width: 640px), (max-height: 480px) {
   .entrance-logo { --logo-size: clamp(36px, min(15vw, 13dvh), 72px); }
   .enter-market { min-width: min(220px, 100%); min-height: 48px; font-size: 17px; }
@@ -126,6 +142,11 @@ canvas { position: absolute; inset: 0; display: block; width: 100%; height: 100%
   .entrance-deck { width: min(340px, 100%); gap: 7px; }
   .entrance-controls { grid-template-columns: 1fr; gap: 5px; }
   .market-carousel, .queue-card { min-height: 45px; }
+  .entrance-actions { display: flex; }
+  .entrance-actions > button { flex: 1; min-width: 0; }
+  .entrance-actions .enter-market { padding-inline: 9px 25px; font-size: 15px; }
+  .entrance-actions .enter-market i { right: 6px; }
+  .watch-market { font-size: 12px; }
 }
 @media (max-height: 440px) {
   .entrance-inner { padding-top: max(10px, env(safe-area-inset-top)); padding-bottom: max(14px, env(safe-area-inset-bottom)); }

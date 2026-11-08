@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { DatabaseSync } from 'node:sqlite';
 import { Market, endpoint } from '../server/market.mjs';
-import { CHAT_FEED_MS, CHAT_MS, DEFAULT_LOOK, LOBBY_CHAT_MS, MARKET_DURATION, MARKET_INTERVAL, QUEUE_LEAD, RARE_SCARVES, ROUND_CURRENCY, dailyRare, marketQueue, marketSession, roundCloth, roundStock } from '../game/catalog.mjs';
+import { CHAT_FEED_MS, CHAT_MS, DEFAULT_LOOK, LOBBY_CHAT_MS, MARKET_CAPACITY, MARKET_DURATION, MARKET_INTERVAL, QUEUE_LEAD, RARE_SCARVES, ROUND_CURRENCY, dailyRare, marketQueue, marketSession, roundCloth, roundStock } from '../game/catalog.mjs';
 
 const midnight=Date.parse('2026-11-08T00:00:00+09:00');
 const start=marketSession(midnight).next;
@@ -76,6 +76,7 @@ test('each round has distinct goods and rejects purchases from the other rounds'
     const state=market.inventory(at);
     const rare=slot===3?{[dailyRare(at).id]:1}:{};
     assert.deepEqual(state.stock,{...roundStock(slot),...rare});
+    market.action({action:'sync',token:guest.token},at);
     const otherItem=roundCloth(slot%3+1)[0];
     const refused=market.action({action:'buy',item:otherItem.id,token:guest.token},at+100);
     assert.equal(refused.status,409);
@@ -118,6 +119,33 @@ test('returning from a test round keeps the regular round grant and respects old
   const returned=sync(until);
   assert.equal(returned.currencyGrant,null);
   assert.equal(returned.player.cash,6200);
+});
+
+test('the last seat admits one contender and the other can watch inventory without buying', async t=>{
+  const data=setup();t.after(data.close);
+  const market=data.create();
+  const guests=Array.from({length:MARKET_CAPACITY+1},(_,i)=>market.action({action:'join',room:'lobby'},start,'guest-'+i));
+  const sync=(guest,room,now=start)=>market.action({action:'sync',room,token:guest.token},now);
+  for(const guest of guests.slice(0,-2))assert.equal(sync(guest,'market').room,'market');
+  const [winner,waiting]=guests.slice(-2);
+  const admitted=await Promise.all([winner,waiting].map(guest=>Promise.resolve().then(()=>sync(guest,'market'))));
+  assert.equal(admitted[0].currencyGrant,ROUND_CURRENCY);
+  assert.equal(admitted[1].admission,'full');
+  assert.equal(admitted[1].room,'lobby');
+  assert.equal(admitted[1].currencyGrant,null);
+  assert.equal(admitted[1].marketOnline,MARKET_CAPACITY);
+  assert.equal(market.action({action:'buy',token:waiting.token,item:'scarf'},start).status,409);
+  market.action({action:'buy',token:winner.token,item:'scarf'},start+400);
+  const watched=market.marketStatus(start+500);
+  assert.equal(watched.stock.scarf,firstStock.scarf-1);
+  assert.equal(watched.player,undefined);
+  assert.equal(sync(winner,'lobby',start+600).marketOnline,MARKET_CAPACITY-1);
+  assert.equal(sync(waiting,'market',start+700).currencyGrant,ROUND_CURRENCY);
+  const expired=market.marketStatus(start+31_000);
+  assert.equal(expired.marketOnline,0);
+  const closed=sync(waiting,'market',start+MARKET_DURATION);
+  assert.equal(closed.admission,'closed');
+  assert.equal(closed.marketOnline,0);
 });
 
 test('two shoppers share one limited stock; only the first gets the last item, then the next round refills', async t=>{
@@ -207,20 +235,20 @@ test('HTTP requires the configured origin and a valid token for trades', async t
 test('chat is authenticated, transient, limited and visible to another guest', t=>{
   const data=setup();t.after(data.close);
   const market=data.create();
-  const guest=market.action({action:'join'},midnight);
-  const neighbor=market.action({action:'join'},midnight);
-  assert.equal(market.action({action:'chat',text:'hello'},midnight).status,401);
-  assert.equal(market.action({action:'chat',token:guest.token,text:'a'.repeat(81)},midnight).status,400);
-  const sent=market.action({action:'chat',token:guest.token,text:'  안녕\n <b>골목</b>  '},midnight+100);
+  const guest=market.action({action:'join'},start);
+  const neighbor=market.action({action:'join'},start);
+  assert.equal(market.action({action:'chat',text:'hello'},start).status,401);
+  assert.equal(market.action({action:'chat',token:guest.token,text:'a'.repeat(81)},start).status,400);
+  const sent=market.action({action:'chat',token:guest.token,text:'  안녕\n <b>골목</b>  '},start+100);
   assert.equal(sent.speech.text,'안녕 <b>골목</b>');
   assert.equal(sent.speech.playerId,guest.player.id);
   assert.equal(sent.speech.name,guest.player.name);
-  assert.equal(sent.speech.expiresAt,midnight+100+CHAT_MS);
-  assert.equal(market.action({action:'chat',token:guest.token,text:'안녕'},midnight+101).status,429);
+  assert.equal(sent.speech.expiresAt,start+100+CHAT_MS);
+  assert.equal(market.action({action:'chat',token:guest.token,text:'안녕'},start+101).status,429);
   const sync=now=>market.action({action:'sync',token:neighbor.token},now);
-  assert.deepEqual(sync(midnight+500).peers[0].speech,sent.speech);
+  assert.deepEqual(sync(start+500).peers[0].speech,sent.speech);
   assert.deepEqual(sync(sent.speech.expiresAt).peers[0].speech,sent.speech);
-  assert.deepEqual(market.action({action:'sync',token:guest.token},midnight+8000).speech,sent.speech);
+  assert.deepEqual(market.action({action:'sync',token:guest.token},start+8000).speech,sent.speech);
   assert.equal(sync(sent.speech.sentAt+CHAT_FEED_MS).peers[0].speech,undefined);
 });
 
@@ -238,12 +266,12 @@ test('the lobby shares recent chat without leaking to the market or creating a m
   assert.equal(first.online,2);
   assert.deepEqual(first.lobbyMessages.map(message=>message.text),['대기실 인사']);
   assert.deepEqual(first.peers,[]);
-  assert.equal(say(guest.token,'market','빠른 전환',start+30).status,429);
   assert.equal(market.action({action:'buy',token:guest.token,room:'lobby',item:'scarf'},start+50).status,409);
   const entered=market.action({action:'sync',token:guest.token},start+100);
   assert.equal(entered.online,2);
   assert.equal(entered.lobbyMessages,undefined);
   assert.equal(entered.speech,undefined);
+  assert.equal(say(guest.token,'market','빠른 전환',start+150).status,429);
   const remaining=market.action({action:'sync',token:waiting.token,room:'lobby'},start+200);
   assert.equal(remaining.online,1);
   assert.deepEqual(remaining.lobbyMessages.map(message=>message.text),['대기실 인사']);
@@ -329,6 +357,7 @@ test('a regular market can close after a test ends during its opening', t=>{
   const from=start-90_000,until=start+90_000;
   const market=data.create({from,until});
   const guest=market.action({action:'join'},from);
+  market.action({action:'sync',token:guest.token},until);
   const bought=market.action({action:'buy',token:guest.token,item:'scarf'},until+1);
   const closed=market.inventory(start+MARKET_DURATION);
   assert.equal(guest.testing,true);
@@ -350,8 +379,10 @@ test('the third round has the daily rare scarf and a same-day test cannot refill
   assert.equal(count(first),0);
   assert.equal(count(market.inventory(start+MARKET_INTERVAL)),0);
   assert.equal(count(market.inventory(third)),1);
+  market.action({action:'sync',token:first.token},third);
+  market.action({action:'sync',token:second.token},third);
   const purchased=market.action({action:'buy',token:first.token,item:rare.id},third+100);
-  assert.equal(purchased.player.cash,ROUND_CURRENCY-rare.price);
+  assert.equal(purchased.player.cash,2*ROUND_CURRENCY-rare.price);
   assert.equal(purchased.basket[0].item,rare.id);
   assert.equal(count(purchased),0);
   assert.equal(market.action({action:'buy',token:second.token,item:rare.id},third+100).status,409);

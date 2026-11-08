@@ -40,6 +40,7 @@
       <div class="entrance-inner">
         <div class="entrance-logo">
           <h1 id="entrance-title"><span>쓸모없는</span> <span>소비시장</span></h1>
+          <span class="beta-badge">오픈 베타</span>
         </div>
         <div class="entrance-deck">
           <p id="entrance-notice" class="entrance-notice" role="status" tabindex="-1" hidden></p>
@@ -60,9 +61,12 @@
               <strong id="queue-countdown" role="timer" aria-live="off">--:--</strong>
             </section>
           </div>
-          <button type="button" class="enter-market" id="enter-market" aria-describedby="queue-detail">
-            <span id="enter-market-label">시장입장하기</span><i data-icon="arrow" aria-hidden="true"></i>
-          </button>
+          <div class="entrance-actions">
+            <button type="button" class="enter-market" id="enter-market" aria-describedby="queue-detail">
+              <span id="enter-market-label">시장입장하기</span><i data-icon="arrow" aria-hidden="true"></i>
+            </button>
+            <button type="button" class="glass watch-market" id="spectate-market"><i data-icon="store" aria-hidden="true"></i> 시장 구경하기</button>
+          </div>
         </div>
       </div>
     </section>

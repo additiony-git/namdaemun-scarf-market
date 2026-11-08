@@ -19,20 +19,22 @@ export class MarketRoom extends DurableObject {
       const [client, server] = Object.values(new WebSocketPair());
       this.ctx.acceptWebSocket(server);
       server.serializeAttachment(room);
-      if (room === 'market') {
-        const inventory = this.ctx.storage.transactionSync(() => this.market.inventory(Date.now()));
-        server.send(JSON.stringify(inventory));
-      }
+      const status = this.ctx.storage.transactionSync(() => this.market.marketStatus(Date.now()));
+      server.send(JSON.stringify({ type: 'market-status', ...status }));
       return new Response(null, { status: 101, webSocket: client });
     }
     return endpoint(this.market, request, this.env.PAGES_ORIGIN, request.headers.get('CF-Connecting-IP') || 'unknown',
-      (action, { stock, goods, revision, round, slot, nextSlot, next, open, closes, speech, testing, rare, room }) => {
-        const update = JSON.stringify(action === 'chat'
-          ? { type: 'chat', speech }
-          : { stock, goods, revision, round, slot, nextSlot, next, open, closes, testing, rare });
+      (action, { now, stock, goods, revision, round, slot, nextSlot, next, open, closes, speech, testing, rare, room, marketOnline, marketCapacity }) => {
+        const key = [round, open, revision, marketOnline].join(':');
+        const changed = key !== this.lastMarketStatus;
+        this.lastMarketStatus = key;
+        if (!changed && action !== 'chat') return;
+        const status = changed ? JSON.stringify({ type: 'market-status', now, stock, goods, revision, round, slot, nextSlot, next, open, closes, testing, rare, marketOnline, marketCapacity }) : null;
+        const chat = action === 'chat' ? JSON.stringify({ type: 'chat', speech }) : null;
         for (const socket of this.ctx.getWebSockets()) {
           try {
-            if ((socket.deserializeAttachment() ?? 'market') === room) socket.send(update);
+            if (status) socket.send(status);
+            if (chat && (socket.deserializeAttachment() ?? 'market') === room) socket.send(chat);
           } catch { /* the client has disconnected */ }
         }
       });
