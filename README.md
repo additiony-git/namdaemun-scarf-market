@@ -22,7 +22,7 @@
 ## GitHub에서 무료로 시작하기
 
 1. GitHub에서 빈 **공개 저장소**를 만듭니다. 이 프로젝트의 `main`을 올린 뒤 저장소 **Settings → Pages → Source → GitHub Actions**를 선택합니다. **Actions → Publish the market → Run workflow**를 실행하면 혼자 체험하는 웹 버전부터 열 수 있습니다. [GitHub Pages 문서](https://docs.github.com/en/pages/getting-started-with-github-pages/configuring-a-publishing-source-for-your-github-pages-site)
-2. 공용 장터를 열려면 [Cloudflare Workers Free](https://developers.cloudflare.com/durable-objects/platform/pricing/) 계정에서 Worker를 배포합니다. `wrangler.toml`의 `PAGES_ORIGIN`을 실제 GitHub Pages 주소의 출처로 바꿉니다. 주소가 `https://example.github.io/scarf-market/`이라면 출처는 `https://example.github.io`입니다. GitHub Pages에 사용자 지정 도메인을 사용하면 그 도메인을 설정합니다.
+2. 공용 장터를 열려면 Worker를 배포하고 `wrangler.toml`의 `PAGES_ORIGIN`을 GitHub Pages 출처로 설정합니다. 주소가 `https://example.github.io/scarf-market/`이라면 출처는 `https://example.github.io`입니다. 사용자 지정 도메인을 쓰면 `PAGES_CUSTOM_ORIGIN`에 해당 HTTPS 출처를 추가합니다. [Cloudflare Workers Free](https://developers.cloudflare.com/durable-objects/platform/pricing/)
 3. 터미널에서 `npx wrangler login` 후 `npx wrangler deploy`를 실행합니다. Wrangler가 반환한 Worker 주소에 `/api/market`을 붙이고, GitHub 저장소 **Settings → Secrets and variables → Actions → Variables**에 이름 `MARKET_API_URL`로 등록합니다. 주소는 공개 설정값이며, 인증 토큰을 변수나 저장소에 추가할 필요가 없습니다.
 4. **Publish the market** 워크플로를 다시 실행합니다. 배포 주소를 서로 다른 브라우저에서 열고, 화면에 **골목 접속 중**과 접속 인원이 표시되는지 확인합니다. API 변수를 비워 두면 GitHub Pages는 혼자 체험 모드로 동작합니다.
 

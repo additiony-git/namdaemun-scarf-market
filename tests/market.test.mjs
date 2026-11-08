@@ -285,6 +285,14 @@ test('HTTP requires the configured origin and a valid token for trades', async t
   const get=source=>new Request('https://market.example/api/market',{headers:{Origin:source}});
   assert.equal((await endpoint(market,get('https://other.example'),origin)).status,403);
   const calendar=await endpoint(market,get(origin),origin);
+  const customOrigin='https://market.setting41.com';
+  const allowedOrigins=[origin,customOrigin];
+  for(const allowed of allowedOrigins){
+    const reply=await endpoint(market,get(allowed),allowedOrigins);
+    assert.equal(reply.status,200);
+    assert.equal(reply.headers.get('Access-Control-Allow-Origin'),allowed);
+  }
+  assert.equal((await endpoint(market,get(customOrigin+'.other.example'),allowedOrigins)).status,403);
   assert.equal(calendar.status,200);
   assert.equal(calendar.headers.get('Access-Control-Allow-Origin'),origin);
   const schedule=await calendar.json();

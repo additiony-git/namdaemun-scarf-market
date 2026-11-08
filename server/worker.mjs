@@ -1,5 +1,5 @@
 import { DurableObject } from 'cloudflare:workers';
-import { Market, endpoint } from './market.mjs';
+import { Market, endpoint, permitsMarketOrigin } from './market.mjs';
 
 function socketState(socket) {
   const state = socket.deserializeAttachment();
@@ -14,11 +14,11 @@ export class MarketRoom extends DurableObject {
     const until = Date.parse(env.TEST_MARKET_UNTIL);
     const testWindow = Number.isFinite(from) && Number.isFinite(until) && until > from ? { from, until } : undefined;
     this.market = new Market((sql,...params) => storage.sql.exec(sql,...params).toArray(), fn => storage.transactionSync(fn), testWindow);
+    this.allowedOrigins = [env.PAGES_ORIGIN, env.PAGES_CUSTOM_ORIGIN].filter(Boolean);
   }
   fetch(request) {
-    const origin = request.headers.get('Origin');
     if (request.headers.get('Upgrade')?.toLowerCase() === 'websocket') {
-      if (origin && origin !== this.env.PAGES_ORIGIN) return new Response('Forbidden', { status: 403 });
+      if (!permitsMarketOrigin(request, this.allowedOrigins)) return new Response('Forbidden', { status: 403 });
       if (this.ctx.getWebSockets().length >= 120) return new Response('Market is busy', { status: 503 });
       const room = new URL(request.url).searchParams.get('room') === 'lobby' ? 'lobby' : 'market';
       const [client, server] = Object.values(new WebSocketPair());
@@ -28,7 +28,7 @@ export class MarketRoom extends DurableObject {
       server.send(JSON.stringify({ type: 'market-status', ...status }));
       return new Response(null, { status: 101, webSocket: client });
     }
-    return endpoint(this.market, request, this.env.PAGES_ORIGIN, request.headers.get('CF-Connecting-IP') || 'unknown',
+    return endpoint(this.market, request, this.allowedOrigins, request.headers.get('CF-Connecting-IP') || 'unknown',
       (action, { now, stock, goods, revision, round, slot, nextSlot, next, open, closes, speech, testing, rare, dailyRareSold, room, marketOnline, marketCapacity, rarePickup, player, queueAdvanced }) => {
         const key = [round, open, revision, marketOnline].join(':');
         const changed = key !== this.lastMarketStatus;

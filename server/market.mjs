@@ -267,9 +267,16 @@ export class Market {
   }
 }
 
-export function endpoint(market, request, allowedOrigin = '', ip = 'local', publish) {
+export function permitsMarketOrigin(request, allowedOrigins = '') {
   const origin = request.headers.get('Origin');
-  const permitted = !origin || origin === (allowedOrigin || new URL(request.url).origin);
+  if (!origin) return true;
+  if (Array.isArray(allowedOrigins)) return allowedOrigins.includes(origin);
+  return origin === (allowedOrigins || new URL(request.url).origin);
+}
+
+export function endpoint(market, request, allowedOrigins = '', ip = 'local', publish) {
+  const origin = request.headers.get('Origin');
+  const permitted = permitsMarketOrigin(request, allowedOrigins);
   const headers = { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', Vary: 'Origin' };
   if (origin && permitted) headers['Access-Control-Allow-Origin'] = origin;
   const send = (body, status = 200) => new Response(JSON.stringify(body), { status, headers });

@@ -4,8 +4,9 @@ compatibility_date = "2026-01-01"
 workers_dev = true
 
 [vars]
-# Change to your GitHub Pages origin (no repository path or trailing slash).
+# Use complete HTTPS origins without a path or trailing slash.
 PAGES_ORIGIN = "https://additiony-git.github.io"
+PAGES_CUSTOM_ORIGIN = "https://market.setting41.com"
 
 [[durable_objects.bindings]]
 name = "MARKET_ROOM"
