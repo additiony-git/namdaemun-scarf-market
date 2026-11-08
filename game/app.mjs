@@ -38,6 +38,7 @@ function icons(root=document) {
 icons();
 
 const endpoint = MARKET_API;
+const marketAmbience=$('market-ambience');
 const tokenKey = 'ndm-token-v1:' + (endpoint || 'offline');
 const demoKey = 'ndm-demo-v1';
 const temporary=new Map();
@@ -397,6 +398,7 @@ function renderEntrance(session, now){
 function returnToEntrance(message='시작 화면으로 돌아왔어요.'){
   if(!enteredMarket)return;
   enteredMarket=false;
+  syncMarketSound();
   roomRevision++;
   closeFeed();
   if(dialog.open)dialog.close();
@@ -752,6 +754,7 @@ function openSpectator(message){
     if(dialog.open)dialog.close();
     setLobbyChatOpen(false,false);
     watchingMarket=true;
+    syncMarketSound();
     watchCrowdAt=0;
     watchCrowdCount=undefined;
     watchSignature='';
@@ -773,6 +776,7 @@ function closeSpectator(){
   if(!watchingMarket)return;
   subscribeToWatch(false);
   watchingMarket=false;
+  syncMarketSound();
   $('watch-ui').hidden=true;
   $('world').setAttribute('aria-label','남대문 시장 3D 골목');
   $('world').setAttribute('aria-hidden','true');
@@ -884,10 +888,33 @@ function nextVendorLine(){
   if(watchingMarket)renderSpectator(true);
   else line();
 }
+function syncMarketSound(){
+  if(muted||document.hidden||(!enteredMarket&&!watchingMarket)){
+    marketAmbience.pause();
+    return;
+  }
+  if(!marketAmbience.paused)return;
+  void marketAmbience.play().catch(error=>{
+    if(error.name==='AbortError'||muted||document.hidden||(!enteredMarket&&!watchingMarket))return;
+    toggleMarketSound();
+    toast('시장 소리를 켜지 못했어요. 소리 버튼을 다시 눌러 주세요.');
+  });
+}
+function toggleMarketSound(){
+  muted=!muted;
+  for(const id of ['sound','watch-sound']){
+    const button=$(id);
+    button.setAttribute('aria-pressed',String(!muted));
+    button.title=muted?'시장 소리 켜기':'시장 소리 끄기';
+    button.firstElementChild.dataset.icon=muted?'mute':'sound';
+    icons(button);
+  }
+  syncMarketSound();
+}
 function chime(){
   if(muted)return;
   try{
-    audioCtx??=new AudioContext();void audioCtx.resume();
+    audioCtx??=new AudioContext();void audioCtx.resume().catch(()=>{});
     const t=audioCtx.currentTime;
     for(const [f,d] of [[570,0],[760,.07]]){
       const osc=audioCtx.createOscillator(), gain=audioCtx.createGain();
@@ -1053,7 +1080,7 @@ $('vendor-speech').onclick=nextVendorLine;
 $('soldout-preview').onclick=()=>{
   if(inventory?.testing&&shop==='scarves'&&!acting)setSoldoutPreview(!soldoutPreview);
 };
-$('sound').onclick=()=>{muted=!muted;$('sound').setAttribute('aria-pressed',String(!muted));$('sound').firstElementChild.dataset.icon=muted?'mute':'sound';icons($('sound'));if(!muted)chime();};
+$('sound').onclick=$('watch-sound').onclick=toggleMarketSound;
 const fullscreen=$('fullscreen');
 fullscreen.onclick=async()=>{
   try {
@@ -1107,6 +1134,7 @@ document.addEventListener('keyup',e=>{const dir=direction(e.key);if(dir)world?.d
 window.addEventListener('blur',()=>world?.dir.clear());
 document.addEventListener('visibilitychange',()=>{
   world?.dir.clear();
+  syncMarketSound();
   if(document.hidden)closeFeed();
   else{tick();queue(100);}
 });
@@ -1169,9 +1197,10 @@ function enterMarket(){
   queue(0);
 }
 function showMarket(session){
+  enteredMarket=true;
   if(watchingMarket)closeSpectator();
   if(dialog.open)dialog.close();
-  enteredMarket=true;
+  syncMarketSound();
   roomRevision++;
   closeFeed();
   setLobbyChatOpen(false,false);
