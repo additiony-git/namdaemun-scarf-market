@@ -13,7 +13,8 @@ export class MarketRoom extends DurableObject {
     const from = Date.parse(env.TEST_MARKET_FROM);
     const until = Date.parse(env.TEST_MARKET_UNTIL);
     const testWindow = Number.isFinite(from) && Number.isFinite(until) && until > from ? { from, until } : undefined;
-    this.market = new Market((sql,...params) => storage.sql.exec(sql,...params).toArray(), fn => storage.transactionSync(fn), testWindow, env.GOOGLE_CLIENT_ID);
+    this.market = new Market((sql,...params) => storage.sql.exec(sql,...params).toArray(), fn => storage.transactionSync(fn),
+      testWindow, env.GOOGLE_CLIENT_ID, env.REQUIRE_GOOGLE_LOGIN === 'true');
     this.allowedOrigins = [env.PAGES_ORIGIN, env.PAGES_CUSTOM_ORIGIN].filter(Boolean);
   }
   fetch(request) {
@@ -24,7 +25,7 @@ export class MarketRoom extends DurableObject {
       const room = requestedRoom === 'watch' ? 'watch' : requestedRoom === 'lobby' ? 'lobby' : 'market';
       const [client, server] = Object.values(new WebSocketPair());
       this.ctx.acceptWebSocket(server);
-      server.serializeAttachment(this.market.googleClientId && room !== 'watch' ? { room: 'watch', requestedRoom: room } : { room });
+      server.serializeAttachment(this.market.loginRequired && room !== 'watch' ? { room: 'watch', requestedRoom: room } : { room });
       const status = this.ctx.storage.transactionSync(() => this.market.marketStatus(Date.now()));
       server.send(JSON.stringify({ type: 'market-status', ...status }));
       return new Response(null, { status: 101, webSocket: client });

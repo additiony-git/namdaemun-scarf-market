@@ -18,11 +18,12 @@ const problem = (error, status = 400) => ({ error, status });
 const newToken = () => Array.from(crypto.getRandomValues(new Uint8Array(24)), n => n.toString(16).padStart(2, '0')).join('');
 const validToken = token => typeof token === 'string' && /^[0-9a-f]{48}$/.test(token);
 export class Market {
-  constructor(query, transaction, testWindow, googleClientId = '') {
+  constructor(query, transaction, testWindow, googleClientId = '', requireGoogleLogin = false) {
     this.query = query;
     this.transaction = transaction;
     this.testWindow = testWindow;
     this.googleClientId = googleClientId;
+    this.loginRequired = requireGoogleLogin || Boolean(googleClientId);
     this.people = new Map();
     this.nextWatchId = 0;
     this.lobbyMessages = [];
@@ -172,7 +173,7 @@ export class Market {
     const lastClose = this.lastClose(now);
     this.prune(now, lastClose);
     return { now, lastClose, ...this.inventory(now), marketOnline: this.marketCount(), marketCapacity: MARKET_CAPACITY,
-      googleClientId: this.googleClientId || undefined,
+      loginRequired: this.loginRequired, googleClientId: this.googleClientId || undefined,
       crowd: watch ? this.marketCrowd(now) : undefined,
       rarePickup: watch ? this.rarePickup(now, true) : undefined };
   }
@@ -223,7 +224,7 @@ export class Market {
     this.prune(now, lastClose);
     return this.transaction(() => {
       let player = this.sessionPlayer(token, now);
-      if (this.googleClientId && !player) return problem('Google로 로그인한 뒤 시장에 입장해 주세요.', 401);
+      if (this.loginRequired && !player) return problem('Google로 로그인한 뒤 시장에 입장해 주세요.', 401);
       if (!player && validToken(token)) player = this.get('SELECT * FROM players WHERE token = ?', token);
       let issued;
       if (!player && action === 'join') {

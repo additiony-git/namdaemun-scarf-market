@@ -46,7 +46,7 @@ const temporary=new Map();
 function read(key){try{return localStorage.getItem(key);}catch{return temporary.get(key)??null;}}
 function write(key,value){temporary.set(key,value);try{localStorage.setItem(key,value);}catch{/* keep this session playable */}}
 const blank = () => ({ id:'solo', name:'새내기 손님', cash:0, collected:0, rank:null });
-let googleSession=read(googleSessionKey), googleClientId='', authChecked=false, guestRequested=false;
+let googleSession=read(googleSessionKey), googleClientId='', loginRequired=false, authChecked=false, guestRequested=false;
 let token=googleSession||read(tokenKey), model, world, mode=endpoint?'loading':'solo', modal='', busy=false, timeOffset=0, misses=0, syncTimer;
 let enteredMarket=false, entryRequested=false, waitingPosition=0, cancelQueue=false, roomRevision=0;
 let entryRound;
@@ -73,7 +73,7 @@ const shortTime=new Intl.DateTimeFormat('ko-KR',{timeZone:'Asia/Seoul',hour:'2-d
 const dialog=$('modal');
 const accountDialog=$('account-modal');
 let googleScript, loginAttempt=0;
-const loginNeeded=()=>Boolean(googleClientId&&!googleSession);
+const loginNeeded=()=>loginRequired&&!googleSession;
 const closingNotice=$('market-closing');
 const roundEndedMessage='이번 장이 마감되어 시작 화면으로 돌아왔어요. 다음 장은 선착순으로 다시 입장해 주세요.';
 const activeRoom=()=>enteredMarket?'market':'lobby';
@@ -181,6 +181,7 @@ async function readPublicMarket(){
 }
 function updatePublicMarket(data){
   googleClientId=data.googleClientId??'';
+  loginRequired=data.loginRequired===true||Boolean(googleClientId);
   authChecked=true;
   noteSchedule(data);
   setWatchStatus(data);
@@ -220,10 +221,14 @@ async function openGoogleLogin(fromEntry=false){
   const guestToken=read(tokenKey);
   $('entry-login-speech').hidden=!fromEntry;
   accountDialog.setAttribute('aria-describedby',fromEntry?'entry-login-line':'account-summary');
-  $('account-link-note').hidden=!guestToken;
+  $('account-link-note').hidden=!googleClientId||!guestToken;
+  $('account-summary').hidden=!googleClientId&&fromEntry;
+  $('account-watch').hidden=Boolean(googleClientId)||watchingMarket;
+  $('google-button').hidden=!googleClientId;
   $('google-button').replaceChildren();
-  setText('account-feedback','Google 로그인을 준비하고 있어요.');
+  setText('account-feedback',googleClientId?'Google 로그인을 준비하고 있어요.':'Google 로그인 준비 중이에요. 시장은 구경할 수 있어요.');
   accountDialog.showModal();
+  if(!googleClientId)return;
   try{
     const [google,{nonce}]=await Promise.all([loadGoogle(),marketPost({action:'google-challenge',guestToken})]);
     if(attempt!==loginAttempt||!accountDialog.open)return;
@@ -392,7 +397,7 @@ function connectFeed(){
   feed=socket;
   socket.onopen=()=>{
     if(feed!==socket)return;
-    if(googleClientId&&googleSession&&room!=='watch')socket.send('session:'+googleSession);
+    if(loginRequired&&googleSession&&room!=='watch')socket.send('session:'+googleSession);
     if(room!=='market'&&watchingMarket)subscribeToWatch(true);
   };
   socket.onmessage=({data})=>{
@@ -1174,7 +1179,7 @@ async function connect(){
       const publicState=await readPublicMarket();
       if(revision!==roomRevision)return;
       updatePublicMarket(publicState);
-      if(googleClientId||googleSession){
+      if(loginRequired||googleSession){
         authChecked=false;
         setGoogleSession(null);
         return;
@@ -1470,6 +1475,7 @@ function showMarket(session){
 $('enter-market').onclick=enterMarket;
 $('watch-market').onclick=()=>openSpectator();
 $('close-account').onclick=()=>accountDialog.close();
+$('account-watch').onclick=()=>{accountDialog.close();openSpectator();};
 $('watch-exit').onclick=closeSpectator;
 $('watch-enter').onclick=enterMarket;
 $('watch-cancel').onclick=()=>{

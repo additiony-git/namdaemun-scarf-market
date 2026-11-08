@@ -11,7 +11,7 @@ const firstStock=roundStock(1);
 
 function setup() {
   const db=new DatabaseSync(':memory:');
-  function create(testWindow, googleClientId) {
+  function create(testWindow, googleClientId, requireGoogleLogin) {
     return new Market((sql,...params)=>{
       const stmt=db.prepare(sql);
       if(/^SELECT\b|\bRETURNING\b/i.test(sql))return stmt.all(...params);
@@ -19,7 +19,7 @@ function setup() {
     }, fn=>{
       db.exec('BEGIN IMMEDIATE');
       try {const value=fn();db.exec('COMMIT');return value;} catch(e){db.exec('ROLLBACK');throw e;}
-    },testWindow,googleClientId);
+    },testWindow,googleClientId,requireGoogleLogin);
   }
   return {create, db, close:()=>db.close()};
 }
@@ -455,6 +455,19 @@ test('Google sign-in connects existing guest records and restores the same playe
   assert.equal((await post({action:'logout',token:first.token})).status,200);
   assert.equal((await post({action:'sync',token:first.token,room:'lobby'})).status,401);
   assert.equal((await post({action:'sync',token:second.token,room:'lobby'})).status,200);
+});
+
+test('required Google login blocks guest admission before OAuth is configured', t=>{
+  const data=setup();t.after(data.close);
+  const guest=data.create().action({action:'join'},start);
+  const market=data.create(undefined,'',true);
+  assert.equal(market.action({action:'join'},start).status,401);
+  assert.equal(market.action({action:'sync',token:guest.token},start).status,401);
+  const view=market.marketStatus(start,true);
+  assert.equal(view.loginRequired,true);
+  assert.equal(view.googleClientId,undefined);
+  assert.deepEqual(view.crowd,[]);
+  assert.equal(view.stock.scarf,firstStock.scarf);
 });
 
 test('chat is authenticated, transient, limited and visible to another guest', t=>{
