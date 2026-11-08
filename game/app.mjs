@@ -1,4 +1,4 @@
-import { AVATAR_OPTIONS, CHAT_FEED_MS, CHAT_LIMIT, CHAT_MS, DEFAULT_LOOK, EMPTY_STOCK, JUNK, LINES, LOBBY_CHAT_LIMIT, LOBBY_CHAT_MS, MARKET_CAPACITY, MARKET_HOURS, MARKET_ITEMS, RARE_PICKUP_MS, ROUND_CURRENCY, SCARVES, SPAWN, avatarOptionsFor, chatText, marketRare, marketSession, niceName, normalizeLook, roundCloth, roundStock, seoulDay, seoulDayStart } from './catalog.mjs';
+import { AVATAR_OPTIONS, CHAT_FEED_MS, CHAT_LIMIT, CHAT_MS, DEFAULT_LOOK, EMPTY_STOCK, JUNK, LINES, LOBBY_CHAT_LIMIT, LOBBY_CHAT_MS, MARKET_CAPACITY, MARKET_HOURS, MARKET_ITEMS, RARE_PICKUP_MS, ROUND_CURRENCY, SCARVES, SPAWN, WAITING_LINES, avatarOptionsFor, chatText, marketRare, marketSession, niceName, normalizeLook, roundCloth, roundStock, seoulDay, seoulDayStart } from './catalog.mjs';
 import { MARKET_API } from './config.mjs';
 import { createWorld, drawAvatarPreview } from './world.mjs';
 
@@ -57,7 +57,7 @@ const profileDrafts=new Map();
 let nearby='', shop='', shopSignature='', inventory, feed, retryFeedAt=0, transitionRequested=0;
 let soldoutPreview=false, soldoutPreviewTimer;
 let soldoutEffectFrame, soldoutEffectTimer;
-let lastLine=0, filter='all', sendingChat=false;
+let lastLine='', filter='all', sendingChat=false;
 let watchVendorSignature='';
 const seenChat=new Set();
 const products=[...MARKET_ITEMS,...JUNK];
@@ -859,15 +859,17 @@ function line(state=displayedAvailability(),next=inventory?.next){
   reopen.hidden=state!=='soldout'&&state!=='waiting';
   let message;
   if(state==='soldout')message='이건 아닌 거 같아… 벌써 다 팔렸네! 다음 장에 다시 와요!';
-  else if(state==='waiting')message='아직 장 준비 중이여. 골목에서 얘기 나누면서 기다려요!';
   else if(state==='loading')message='매대 상황을 확인하는 중이여.';
   else{
-    lastLine=(lastLine+1+Math.floor(Math.random()*(LINES.length-1)))%LINES.length;
-    message=LINES[lastLine];
+    const lines=state==='waiting'?WAITING_LINES:LINES;
+    const choices=lines.filter(text=>text!==lastLine);
+    message=choices[Math.floor(Math.random()*choices.length)];
+    lastLine=message;
   }
   $('line').textContent='“'+message+'”';
   if(!reopen.hidden)reopen.textContent='다음 장 · '+openingTime.format(next);
-  bubble.setAttribute('aria-label',reopen.hidden?'상인의 다음 멘트 듣기':message+' '+reopen.textContent);
+  const nextLine=state==='waiting'?' 다른 준비 멘트 듣기':'';
+  bubble.setAttribute('aria-label',reopen.hidden?'상인의 다음 멘트 듣기':message+' '+reopen.textContent+nextLine);
 }
 function nextVendorLine(){
   if(watchingMarket)renderSpectator(true);
