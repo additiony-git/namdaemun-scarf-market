@@ -79,9 +79,16 @@ canvas { position: absolute; inset: 0; display: block; width: 100%; height: 100%
   line-height: 1.2;
 }
 .entrance-deck {
-  display: grid; justify-items: center; gap: 9px; width: min(610px, 100%);
+  display: grid; justify-items: stretch; gap: 7px; width: min(556px, 100%);
 }
-.entrance-controls { display: grid; grid-template-columns: 1.14fr 1fr; gap: 8px; width: 100%; }
+.entrance-controls, .entrance-actions { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 7px; }
+.entrance-rare {
+  display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 7px;
+  margin: 0; padding: 7px 9px; border: 1px solid #cfaa5b96; border-radius: 7px;
+  background: #302219f5; color: #f7d993; font-size: 11px;
+}
+.entrance-rare strong { color: var(--text); }
+.entrance-rare small { color: #eed3b2; white-space: nowrap; }
 .market-carousel, .queue-card {
   min-width: 0; min-height: 56px; border: 1px solid #e2a7669c; border-radius: 9px;
   background: #251810f5; box-shadow: 0 3px 14px #170c08a0;
@@ -108,7 +115,7 @@ canvas { position: absolute; inset: 0; display: block; width: 100%; height: 100%
 .queue-card[data-state=full] { border-color: #e8a473; }
 .queue-card[data-state=preparing] #queue-countdown { color: #c5b09c; }
 .entrance-notice {
-  margin: 0; padding: 5px 9px; border-radius: 6px; background: #2d1c13f5; color: #ffe5b2;
+  justify-self: center; margin: 0; padding: 5px 9px; border-radius: 6px; background: #2d1c13f5; color: #ffe5b2;
   font-size: 12px; font-weight: 850; text-align: center; word-break: keep-all;
 }
 .enter-market {
@@ -124,16 +131,33 @@ canvas { position: absolute; inset: 0; display: block; width: 100%; height: 100%
 .enter-market:active { transform: translateY(2px); }
 .enter-market:disabled { opacity: 1; filter: none; transform: none; background: #4d392b; color: #e8c9a1; text-shadow: none; border-color: #9a7853; box-shadow: 0 4px #261a14, 0 7px 20px #180c08a0; }
 .enter-market i { position: absolute; right: 14px; top: 50%; transform: translateY(-50%); }
-.entrance-actions { display: grid; grid-template-columns: 1fr auto 1fr; gap: 8px; width: 100%; }
-.entrance-actions .enter-market { grid-column: 2; }
-.watch-market { justify-self: start; padding: 7px 11px; font-size: 13px; font-weight: 850; white-space: nowrap; }
+.entrance-actions .enter-market { min-width: 0; min-height: 51px; padding-inline: 12px 30px; }
+.entrance-actions .enter-market:disabled { padding-inline: 12px; }
+.entrance-actions .enter-market:disabled i { visibility: hidden; }
+.entrance-actions:has(.watch-market[hidden]) { grid-template-columns: 1fr; }
+.watch-market { min-width: 0; padding: 7px 11px; font-size: 14px; font-weight: 850; white-space: nowrap; }
 .watch-market i { color: var(--gold); }
 .watch-summary { display: flex; justify-content: space-between; gap: 8px; margin: 3px 0 9px; color: var(--gold); font-size: 13px; }
-.watch-stock { max-height: 43dvh; overflow: auto; }
+.watch-stock { min-height: 0; overflow: auto; }
 .watch-stock .item { padding: 6px 0; }
 .watch-stock .item-pic { width: 30px; height: 30px; }
 .watch-soldout { color: #e6a68b; }
-.watch-market-refresh { margin-top: 9px; }
+#watch-ui { position: absolute; z-index: 4; inset: 0; pointer-events: none; }
+#watch-ui button, .watch-panel { pointer-events: auto; }
+.watch-header { position: absolute; top: var(--top); left: var(--edge); right: var(--edge); display: flex; justify-content: space-between; align-items: flex-start; gap: 6px; }
+.watch-brand { display: grid; gap: 2px; padding: 8px 11px; }
+.watch-brand span, .watch-rare span { color: #f8cc75; font-size: 10px; font-weight: 900; }
+.watch-brand strong { font-size: 15px; }
+.watch-brand small, .watch-rare small { color: #ebd4b8; font-size: 11px; }
+.watch-header-actions, .watch-views { display: flex; gap: 5px; }
+.watch-control { min-height: 35px; padding: 6px 9px; white-space: nowrap; font-size: 12px; font-weight: 850; }
+.watch-control[aria-pressed=true] { border-color: #e5b168; color: #ffe3af; background: #59402a; }
+.watch-rare { position: absolute; top: calc(var(--top) + 72px); left: var(--edge); display: grid; gap: 3px; padding: 8px 11px; }
+.watch-rare strong { font-size: 13px; }
+.watch-panel { position: absolute; display: flex; flex-direction: column; top: calc(var(--top) + 45px); right: var(--edge); bottom: calc(var(--bottom) + 49px); width: min(335px, 40vw); padding: 12px; border: 1px solid #ae8051; border-radius: 9px; background: #231911ee; }
+.watch-panel #watch-refresh { align-self: flex-start; margin-top: 6px; }
+.watch-footer { position: absolute; bottom: var(--bottom); left: var(--edge); right: var(--edge); display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+.watch-feedback { position: absolute; left: var(--edge); bottom: calc(var(--bottom) + 43px); max-width: calc(100% - 2 * var(--edge)); margin: 0; padding: 6px 9px; font-size: 12px; }
 @media (max-width: 640px), (max-height: 480px) {
   .entrance-logo { --logo-size: clamp(36px, min(15vw, 13dvh), 72px); }
   .enter-market { min-width: min(220px, 100%); min-height: 48px; font-size: 17px; }
@@ -142,11 +166,17 @@ canvas { position: absolute; inset: 0; display: block; width: 100%; height: 100%
   .entrance-deck { width: min(340px, 100%); gap: 7px; }
   .entrance-controls { grid-template-columns: 1fr; gap: 5px; }
   .market-carousel, .queue-card { min-height: 45px; }
-  .entrance-actions { display: flex; }
-  .entrance-actions > button { flex: 1; min-width: 0; }
   .entrance-actions .enter-market { padding-inline: 9px 25px; font-size: 15px; }
   .entrance-actions .enter-market i { right: 6px; }
   .watch-market { font-size: 12px; }
+}
+@media (max-width: 640px) {
+  .watch-brand { padding: 6px 7px; }
+  .watch-brand strong { font-size: 12px; }
+  .watch-control { padding: 5px 7px; font-size: 11px; }
+  .watch-header-actions i { display: none; }
+  .watch-rare { top: calc(var(--top) + 62px); }
+  .watch-panel { top: auto; bottom: calc(var(--bottom) + 43px); left: var(--edge); width: auto; max-height: 38dvh; }
 }
 @media (max-height: 440px) {
   .entrance-inner { padding-top: max(10px, env(safe-area-inset-top)); padding-bottom: max(14px, env(safe-area-inset-bottom)); }

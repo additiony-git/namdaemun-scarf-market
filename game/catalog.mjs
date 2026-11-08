@@ -169,7 +169,8 @@ export function marketSession(now) {
   return { round: previous / minute, slot: index<0?3:index+1, open: now < closes, closes, next, nextSlot: (index+1)%3+1 };
 }
 
-export const marketRare = (now,session) => session.testing || session.slot===3 ? dailyRare(now) : null;
+export const RARE_MARKET_SLOT = 3;
+export const marketRare = (now,session) => session.testing || session.slot===RARE_MARKET_SLOT ? dailyRare(now) : null;
 export function marketQueue(session,now) {
   const starts = session.next - QUEUE_LEAD;
   const closed = !session.open || now>=session.closes;

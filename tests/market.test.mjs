@@ -139,6 +139,10 @@ test('the last seat admits one contender and the other can watch inventory witho
   const watched=market.marketStatus(start+500);
   assert.equal(watched.stock.scarf,firstStock.scarf-1);
   assert.equal(watched.player,undefined);
+  const viewpoint=market.action({action:'sync',room:'lobby',watch:true,token:waiting.token},start+500);
+  assert.equal(viewpoint.crowd.length,MARKET_CAPACITY);
+  assert.deepEqual(Object.keys(viewpoint.crowd[0]).sort(),['id','x','z']);
+  assert.equal(typeof viewpoint.crowd[0].id,'number');
   assert.equal(sync(winner,'lobby',start+600).marketOnline,MARKET_CAPACITY-1);
   assert.equal(sync(waiting,'market',start+700).currencyGrant,ROUND_CURRENCY);
   const expired=market.marketStatus(start+31_000);
@@ -219,7 +223,7 @@ test('HTTP requires the configured origin and a valid token for trades', async t
   assert.equal(blocked.status,403);
   const auth=await endpoint(market,req({action:'buy',item:'scarf'}),origin);
   assert.equal(auth.status,401);
-  const join=await endpoint(market,req({action:'join'}),origin);
+  const join=await endpoint(market,req({action:'join',room:'lobby'}),origin);
   assert.equal(join.status,200);assert.equal(join.headers.get('Access-Control-Allow-Origin'),origin);
   const p=await join.json();
   const sold=await endpoint(market,req({action:'sell',item:'scarf',token:p.token}),origin);
@@ -385,6 +389,8 @@ test('the third round has the daily rare scarf and a same-day test cannot refill
   assert.equal(purchased.player.cash,2*ROUND_CURRENCY-rare.price);
   assert.equal(purchased.basket[0].item,rare.id);
   assert.equal(count(purchased),0);
+  assert.equal(purchased.dailyRareSold,true);
+  assert.equal(market.marketStatus(third+MARKET_DURATION).dailyRareSold,true);
   assert.equal(market.action({action:'buy',token:second.token,item:rare.id},third+100).status,409);
   const later=market.action({action:'sync',token:second.token},from);
   assert.equal(count(later),0);
@@ -392,5 +398,6 @@ test('the third round has the daily rare scarf and a same-day test cannot refill
   const nextDay=marketSession(midnight+86_400_000).next;
   const tomorrow=market.action({action:'sync',token:second.token},nextDay+2*MARKET_INTERVAL);
   assert.equal(count(tomorrow),1);
+  assert.equal(tomorrow.dailyRareSold,false);
   assert.notEqual(tomorrow.rare,rare.id);
 });

@@ -14,6 +14,7 @@ export class Market {
     this.transaction = transaction;
     this.testWindow = testWindow;
     this.people = new Map();
+    this.nextWatchId = 0;
     this.lobbyMessages = [];
     this.joins = new Map();
     query('CREATE TABLE IF NOT EXISTS players (id TEXT PRIMARY KEY, token TEXT UNIQUE NOT NULL, name TEXT NOT NULL, cash INTEGER NOT NULL, sold INTEGER NOT NULL DEFAULT 0, collected INTEGER NOT NULL DEFAULT 0, reached INTEGER NOT NULL DEFAULT 0, traded INTEGER NOT NULL DEFAULT 0)');
@@ -55,6 +56,10 @@ export class Market {
     for (const person of this.people.values()) if (person.room === 'market') count++;
     return count;
   }
+  marketCrowd() {
+    return [...this.people.values()].filter(person => person.room === 'market')
+      .map(({ watchId, x, z }) => ({ id: watchId, x, z }));
+  }
   marketStatus(now) {
     this.prune(now);
     return { now, ...this.inventory(now), marketOnline: this.marketCount(), marketCapacity: MARKET_CAPACITY };
@@ -79,7 +84,8 @@ export class Market {
     const shortWindow = expired && Math.floor(this.testWindow.from / minute) === expiryMinute;
     const revision = expired ? Math.max(scheduledRevision, expiryMinute * 1000 + (shortWindow ? 800 : 0)) : scheduledRevision;
     const rare = open ? marketRare(now,session)?.id ?? null : null;
-    if (!open) return { ...session, stock: EMPTY_STOCK, goods: {}, rare, revision };
+    const dailyRareSold = Boolean(this.get('SELECT day FROM daily_rare_sales WHERE day = ?', seoulDay(now)));
+    if (!open) return { ...session, stock: EMPTY_STOCK, goods: {}, rare, dailyRareSold, revision };
     const stock = roundStock(session.slot);
     let used = 0;
     for (const { item, qty } of this.query('SELECT item, qty FROM cloth_sales WHERE round = ?', round)) {
@@ -88,10 +94,10 @@ export class Market {
       if(Object.hasOwn(stock,item))stock[item]=remaining;
     }
     if (rare) {
-      if (this.get('SELECT day FROM daily_rare_sales WHERE day = ?', seoulDay(now))) used++;
+      if (dailyRareSold) used++;
       else stock[rare] = 1;
     }
-    return { ...session, stock, goods: {}, rare, revision: revision + used };
+    return { ...session, stock, goods: {}, rare, dailyRareSold, revision: revision + used };
   }
   action(body, now = Date.now(), ip = 'local') {
     const { action, token, pos } = body ?? {};
@@ -200,7 +206,8 @@ export class Market {
           if (this.lobbyMessages.length > LOBBY_CHAT_LIMIT) this.lobbyMessages.shift();
         }
       }
-      this.people.set(player.id, { id: player.id, name: player.name, room, x, z, seen: now, speech, lastChat, look });
+      const watchId = room === 'market' ? previous.watchId ?? ++this.nextWatchId : undefined;
+      this.people.set(player.id, { id: player.id, name: player.name, room, x, z, seen: now, speech, lastChat, look, watchId });
       const roomPeople = [...this.people.values()].filter(person => person.room === room);
       const ranking = this.query('SELECT id, name, collected FROM players WHERE collected > 0 ORDER BY collected DESC, reached ASC, id ASC LIMIT 30');
       const myRank = player.collected ? this.get('SELECT COUNT(*) + 1 AS rank FROM players WHERE collected > ? OR (collected = ? AND reached < ?)', player.collected, player.collected, player.reached).rank : null;
@@ -213,6 +220,7 @@ export class Market {
         basket: this.query('SELECT item, qty, updated FROM basket WHERE player = ? ORDER BY updated DESC, item', player.id),
         ranking, online: roomPeople.length,
         lobbyMessages: room === 'lobby' ? this.lobbyMessages.slice() : undefined,
+        crowd: room === 'lobby' && body.watch === true ? this.marketCrowd() : undefined,
         peers: (room === 'market' ? roomPeople : []).filter(p => p.id !== player.id).slice(0, 35).map(({ id, name, x, z, speech, look }) =>
           ({ id, name, x, z, look, speech: speech?.sentAt + CHAT_FEED_MS > now ? speech : undefined })),
       };

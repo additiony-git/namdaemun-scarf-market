@@ -61,6 +61,9 @@
               <strong id="queue-countdown" role="timer" aria-live="off">--:--</strong>
             </section>
           </div>
+          <p class="entrance-rare" id="entrance-rare">
+            <span>✦ 오늘의 레어</span><strong id="entrance-rare-name"></strong><small id="entrance-rare-status"></small>
+          </p>
           <div class="entrance-actions">
             <button type="button" class="enter-market" id="enter-market" aria-describedby="queue-detail">
               <span id="enter-market-label">시장입장하기</span><i data-icon="arrow" aria-hidden="true"></i>
@@ -69,6 +72,31 @@
           </div>
         </div>
       </div>
+    </section>
+    <section id="watch-ui" aria-label="남대문시장 실시간 구경" hidden>
+      <header class="watch-header">
+        <div class="glass watch-brand"><span>● 구경 모드</span><strong>남대문 스카프 상회</strong><small id="watch-heading"></small></div>
+        <div class="watch-header-actions">
+          <button class="glass watch-control" id="watch-stock-toggle" type="button" aria-expanded="false" aria-controls="watch-panel"><i data-icon="store" aria-hidden="true"></i> 재고 보기</button>
+          <button class="glass watch-control" id="watch-exit" type="button"><i data-icon="left" aria-hidden="true"></i> 돌아가기</button>
+        </div>
+      </header>
+      <div class="glass watch-rare">
+        <span>✦ 오늘의 레어</span><strong id="watch-rare-name"></strong><small id="watch-rare-status"></small>
+      </div>
+      <aside class="watch-panel" id="watch-panel" aria-label="스카프 매대 재고" hidden>
+        <div class="watch-summary"><strong>매대 재고</strong><span id="watch-time" role="timer" aria-live="off"></span></div>
+        <div class="watch-stock" id="watch-stock"></div>
+        <button class="glass watch-control" type="button" id="watch-refresh" hidden>새로고침</button>
+      </aside>
+      <footer class="watch-footer">
+        <div class="watch-views" role="group" aria-label="구경 시점">
+          <button class="glass watch-control" id="watch-wide" type="button" aria-pressed="true">골목 전체</button>
+          <button class="glass watch-control" id="watch-stall" type="button" aria-pressed="false">스카프 매대</button>
+        </div>
+        <button class="primary watch-control" id="watch-enter" type="button">시장입장하기</button>
+      </footer>
+      <p id="watch-feedback" class="glass watch-feedback" role="status" hidden></p>
     </section>
     <div id="market-ui" hidden>
     <div id="world-markers" class="markers">
