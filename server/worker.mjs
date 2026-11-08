@@ -29,11 +29,12 @@ export class MarketRoom extends DurableObject {
       return new Response(null, { status: 101, webSocket: client });
     }
     return endpoint(this.market, request, this.env.PAGES_ORIGIN, request.headers.get('CF-Connecting-IP') || 'unknown',
-      (action, { now, stock, goods, revision, round, slot, nextSlot, next, open, closes, speech, testing, rare, dailyRareSold, room, marketOnline, marketCapacity }) => {
+      (action, { now, stock, goods, revision, round, slot, nextSlot, next, open, closes, speech, testing, rare, dailyRareSold, room, marketOnline, marketCapacity, rarePickup, player }) => {
         const key = [round, open, revision, marketOnline].join(':');
         const changed = key !== this.lastMarketStatus;
         this.lastMarketStatus = key;
-        const checkCrowd = changed || (room === 'market' && now - (this.lastCrowdAt ?? 0) >= 2000);
+        const pickup = action === 'buy' && rarePickup?.id === player.id && rarePickup.sentAt === now ? rarePickup : null;
+        const checkCrowd = changed || pickup || (room === 'market' && now - (this.lastCrowdAt ?? 0) >= 2000);
         if (!changed && action !== 'chat' && !checkCrowd) return;
         const status = changed ? JSON.stringify({ type: 'market-status', now, stock, goods, revision, round, slot, nextSlot, next, open, closes, testing, rare, dailyRareSold, marketOnline, marketCapacity }) : null;
         const chat = action === 'chat' ? JSON.stringify({ type: 'chat', speech }) : null;
@@ -52,6 +53,10 @@ export class MarketRoom extends DurableObject {
             if (status) socket.send(status);
             if (chat && state.room === room) socket.send(chat);
             if (crowd && state.watching) socket.send(crowd);
+            if (pickup && (state.watching || state.room === 'market')) {
+              const { id, watchId, ...details } = pickup;
+              socket.send(JSON.stringify({ type: 'rare-pickup', pickup: { ...details, id: state.watching ? watchId : id } }));
+            }
           } catch { /* the client has disconnected */ }
         }
       });
@@ -66,8 +71,11 @@ export class MarketRoom extends DurableObject {
     if (Boolean(state.watching) === watching) return;
     socket.serializeAttachment({ ...state, watching });
     if (watching) {
-      this.market.prune(Date.now());
+      const now = Date.now();
+      this.market.prune(now);
       socket.send(JSON.stringify({ type: 'market-crowd', crowd: this.market.marketCrowd() }));
+      const pickup = this.market.rarePickup(now, true);
+      if (pickup) socket.send(JSON.stringify({ type: 'rare-pickup', pickup }));
     }
   }
   webSocketClose(socket) {

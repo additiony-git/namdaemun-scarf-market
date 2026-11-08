@@ -146,7 +146,6 @@ export const seoulDay = now => Math.floor((now + seoulOffset) / dayLength);
 export const seoulDayStart = now => seoulDay(now) * dayLength - seoulOffset;
 export const dailyRare = now => RARE_SCARVES[((seoulDay(now) % RARE_SCARVES.length) + RARE_SCARVES.length) % RARE_SCARVES.length];
 export const MARKET_DURATION = 45 * minute;
-export const QUEUE_LEAD = 10 * minute;
 export const MARKET_HOURS = [
   { hour: 12, name: '점심 장' },
   { hour: 20, name: '퇴근 장' },
@@ -169,12 +168,8 @@ export function marketSession(now) {
 }
 
 export const RARE_MARKET_SLOT = 3;
+export const RARE_PICKUP_MS = 8_000;
 export const marketRare = (now,session) => session.testing || session.slot===RARE_MARKET_SLOT ? dailyRare(now) : null;
-export function marketQueue(session,now) {
-  const starts = session.next - QUEUE_LEAD;
-  const closed = !session.open || now>=session.closes;
-  return { starts, active: closed && now>=starts && now<session.next, warning: closed && now<starts && starts-now<=5*minute };
-}
 
 export const chatText = value => typeof value === 'string'
   ? value.replace(/[\u0000-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/g, ' ').replace(/\s+/g, ' ').trim()

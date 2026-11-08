@@ -439,6 +439,7 @@ export function createWorld(canvas, markers, onNearby) {
   let peers = new Map();
   let viewerId;
   const speeches=new Map();
+  let rarePickup;
   const labels=markers.scarves.parentElement;
   const dir=new Set();
   function setView(prog){
@@ -527,6 +528,21 @@ export function createWorld(canvas, markers, onNearby) {
     setView(programs[1]);
     for(const s of lettering){gl.bindTexture(gl.TEXTURE_2D,s.tex);draw(programs[1],s.b,6,5);}
     if(entranceShot){entranceRendered=true;requestAnimationFrame(frame);return;}
+    if(rarePickup){
+      const { id, node, until }=rarePickup;
+      if(ms>=until){node.remove();rarePickup=undefined;}
+      else{
+        const collector=id===viewerId?self:peers.get(id);
+        if(!collector)node.hidden=true;
+        else{
+          const [x,y]=project(collector.x,1.76,collector.z);
+          node.hidden=x<0||x>width||y<62||y>height-35;
+          const margin=node.offsetWidth/2+8;
+          node.style.left=Math.max(margin,Math.min(width-margin,x))+'px';
+          node.style.top=y+'px';
+        }
+      }
+    }
     if(watchView){requestAnimationFrame(frame);return;}
     for(const [key,p] of Object.entries({ scarves:[-1.67,2.94,-1.98], junk:[4.36,2.75,.95] })){
       const [x,y]=project(...p);markers[key].style.left=x+'px';markers[key].style.top=y+'px';
@@ -578,6 +594,8 @@ export function createWorld(canvas, markers, onNearby) {
       peers.clear();
       for(const speech of speeches.values())speech.node.remove();
       speeches.clear();
+      rarePickup?.node.remove();
+      rarePickup=undefined;
     },
     watchMarket(view){
       dir.clear();
@@ -586,6 +604,13 @@ export function createWorld(canvas, markers, onNearby) {
     },
     focusShop(active){shopFocused=active;},
     setStock,
+    showRarePickup(pickup, node, remaining){
+      if(rarePickup?.sentAt>=pickup.sentAt)return;
+      rarePickup?.node.remove();
+      node.hidden=true;
+      markers.rare.append(node);
+      rarePickup={id:pickup.id,sentAt:pickup.sentAt,node,until:performance.now()+remaining};
+    },
     showChat(speech, remaining){
       const id=speech.playerId;
       const existing=speeches.get(id);

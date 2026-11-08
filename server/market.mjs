@@ -1,8 +1,10 @@
-import { CHAT_FEED_MS, CHAT_LIMIT, CHAT_MS, EMPTY_STOCK, JUNK, LOBBY_CHAT_LIMIT, LOBBY_CHAT_MS, MAP, MARKET_CAPACITY, MARKET_ITEMS, ROUND_CURRENCY, SPAWN, chatText, fit, marketQueue, marketRare, marketSession, niceName, normalizeLook, roundCloth, roundStock, seoulDay, seoulDayStart } from '../game/catalog.mjs';
+import { CHAT_FEED_MS, CHAT_LIMIT, CHAT_MS, EMPTY_STOCK, JUNK, LOBBY_CHAT_LIMIT, LOBBY_CHAT_MS, MAP, MARKET_CAPACITY, MARKET_ITEMS, RARE_PICKUP_MS, ROUND_CURRENCY, SPAWN, chatText, fit, marketRare, marketSession, niceName, normalizeLook, roundCloth, roundStock, seoulDay, seoulDayStart } from '../game/catalog.mjs';
 
 const defaultName = '새내기 손님';
 const presenceMs = 30_000;
 const lobbyPresenceMs = 270_000;
+const queuePresenceMs = 60_000;
+const queueRenewalMs = 25_000;
 const tradeMs = 350;
 const chatCooldown = 1800;
 const minute = 60_000;
@@ -27,6 +29,9 @@ export class Market {
     query('CREATE TABLE IF NOT EXISTS avatar_styles (player TEXT PRIMARY KEY, character TEXT NOT NULL)');
     query('CREATE TABLE IF NOT EXISTS character_outfits (player TEXT NOT NULL, character TEXT NOT NULL, hat TEXT NOT NULL, coat TEXT NOT NULL, bag TEXT NOT NULL, scarf TEXT NOT NULL, PRIMARY KEY (player, character))');
     query('CREATE TABLE IF NOT EXISTS daily_rare_sales (day INTEGER PRIMARY KEY)');
+    query('CREATE TABLE IF NOT EXISTS market_queue (sequence INTEGER PRIMARY KEY, player TEXT UNIQUE NOT NULL, round INTEGER NOT NULL, seen INTEGER NOT NULL)');
+    query('CREATE INDEX IF NOT EXISTS queue_seen ON market_queue (seen)');
+    query('CREATE INDEX IF NOT EXISTS queue_round ON market_queue (round, sequence)');
   }
   get(sql, ...args) { return this.query(sql, ...args)[0]; }
   issueRoundCurrency(player, round) {
@@ -59,6 +64,14 @@ export class Market {
   marketCrowd() {
     return [...this.people.values()].filter(person => person.room === 'market')
       .map(({ watchId, x, z }) => ({ id: watchId, x, z }));
+  }
+  rarePickup(now, watching = false) {
+    for (const person of this.people.values()) {
+      if (person.room !== 'market' || !(person.pickup?.expiresAt > now)) continue;
+      const { item, sentAt, expiresAt } = person.pickup;
+      return watching ? { id: person.watchId, item, sentAt, expiresAt }
+        : { id: person.id, watchId: person.watchId, item, sentAt, expiresAt };
+    }
   }
   marketStatus(now) {
     this.prune(now);
@@ -124,11 +137,23 @@ export class Market {
       const previous = this.people.get(player.id) ?? SPAWN;
       const connecting = action === 'join' || action === 'sync';
       const hasSeat = previous.room === 'market';
+      if (connecting) this.query('DELETE FROM market_queue WHERE seen <= ?', now - queuePresenceMs);
+      if (connecting) this.query('DELETE FROM market_queue WHERE player = ? AND round <> ?', player.id, open && body.cancelQueue !== true ? round : -1);
       let admission;
       if (requestedRoom === 'market') {
-        if (!open && (!hasSeat || now - session.closes >= 5 * 60_000 || marketQueue(session, now).active)) admission = 'closed';
-        else if (!hasSeat && this.marketCount() >= MARKET_CAPACITY) admission = 'full';
+        if ((!open && (!hasSeat || now - session.closes >= 5 * minute)) ||
+            (!hasSeat && Number.isSafeInteger(body.entryRound) && body.entryRound !== round)) admission = 'closed';
         else if (!hasSeat && !connecting) admission = 'enter-first';
+        else if (!hasSeat) {
+          const first = this.get('SELECT player FROM market_queue WHERE round = ? ORDER BY sequence LIMIT 1', round);
+          if (this.marketCount() >= MARKET_CAPACITY || (first && first.player !== player.id)) {
+            admission = 'full';
+            this.query('INSERT INTO market_queue (player, round, seen) VALUES (?, ?, ?) ON CONFLICT(player) DO UPDATE SET round = excluded.round, seen = excluded.seen WHERE market_queue.round <> excluded.round OR market_queue.seen <= ?',
+              player.id, round, now, now - queueRenewalMs);
+          } else if (first) {
+            this.query('DELETE FROM market_queue WHERE player = ?', player.id);
+          }
+        }
         if (admission && !connecting) {
           return problem(admission === 'closed' ? '장이 닫혔어요. 다음 개장 시간을 확인해 주세요.' : '시장에 입장한 뒤 이용해 주세요.', 409);
         }
@@ -141,6 +166,7 @@ export class Market {
       const z = fit(pos?.z, MAP.minZ, MAP.maxZ, previous.z);
       let event;
       let speech = previous.room === room ? previous.speech : undefined;
+      let pickup = room === 'market' && previous.pickup?.expiresAt > now ? previous.pickup : undefined;
       let lastChat = previous.lastChat;
       let look = normalizeLook(this.get('SELECT looks.hat, looks.coat, looks.bag, looks.scarf, avatar_styles.character FROM players LEFT JOIN looks ON looks.player = players.id LEFT JOIN avatar_styles ON avatar_styles.player = players.id WHERE players.id = ?', player.id));
       if (action === 'rename' || action === 'profile') {
@@ -187,6 +213,7 @@ export class Market {
         }
         if (item.rare) {
           this.query('INSERT INTO daily_rare_sales VALUES (?)', seoulDay(now));
+          pickup = { item: item.id, sentAt: now, expiresAt: now + RARE_PICKUP_MS };
         } else {
           this.query('INSERT INTO cloth_sales VALUES (?, ?, 1) ON CONFLICT(round,item) DO UPDATE SET qty = qty + 1', round, item.id);
           this.query('DELETE FROM cloth_sales WHERE round < ?', round - 3 * 24 * 60);
@@ -207,20 +234,24 @@ export class Market {
         }
       }
       const watchId = room === 'market' ? previous.watchId ?? ++this.nextWatchId : undefined;
-      this.people.set(player.id, { id: player.id, name: player.name, room, x, z, seen: now, speech, lastChat, look, watchId });
+      this.people.set(player.id, { id: player.id, name: player.name, room, x, z, seen: now, speech, lastChat, look, watchId, pickup });
       const roomPeople = [...this.people.values()].filter(person => person.room === room);
       const ranking = this.query('SELECT id, name, collected FROM players WHERE collected > 0 ORDER BY collected DESC, reached ASC, id ASC LIMIT 30');
       const myRank = player.collected ? this.get('SELECT COUNT(*) + 1 AS rank FROM players WHERE collected > ? OR (collected = ? AND reached < ?)', player.collected, player.collected, player.reached).rank : null;
       const outfits = Object.fromEntries(this.query('SELECT character, hat, coat, bag, scarf FROM character_outfits WHERE player = ?', player.id).map(row=>[row.character,normalizeLook(row)]));
       outfits[look.character] = look;
+      const queuePosition = room === 'lobby' && open ? this.get(
+        'SELECT COUNT(*) AS position FROM market_queue WHERE round = ? AND seen > ? AND sequence <= (SELECT sequence FROM market_queue WHERE player = ? AND round = ? AND seen > ?)',
+        round, now - queuePresenceMs, player.id, round, now - queuePresenceMs).position || null : null;
       return {
         token: issued, event, room, admission, currencyGrant, speech: speech?.sentAt + CHAT_FEED_MS > now ? speech : undefined, now, ...this.inventory(now, session),
-        marketOnline: this.marketCount(), marketCapacity: MARKET_CAPACITY,
+        marketOnline: this.marketCount(), marketCapacity: MARKET_CAPACITY, queuePosition,
         player: { id: player.id, name: player.name, cash: player.cash, sold: player.sold, collected: player.collected, rank: myRank, look, outfits },
         basket: this.query('SELECT item, qty, updated FROM basket WHERE player = ? ORDER BY updated DESC, item', player.id),
         ranking, online: roomPeople.length,
         lobbyMessages: room === 'lobby' ? this.lobbyMessages.slice() : undefined,
         crowd: room === 'lobby' && body.watch === true ? this.marketCrowd() : undefined,
+        rarePickup: room === 'market' || body.watch === true ? this.rarePickup(now, room === 'lobby') : undefined,
         peers: (room === 'market' ? roomPeople : []).filter(p => p.id !== player.id).slice(0, 35).map(({ id, name, x, z, speech, look }) =>
           ({ id, name, x, z, look, speech: speech?.sentAt + CHAT_FEED_MS > now ? speech : undefined })),
       };

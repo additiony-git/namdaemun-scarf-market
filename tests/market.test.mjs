@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { DatabaseSync } from 'node:sqlite';
 import { Market, endpoint } from '../server/market.mjs';
-import { CHAT_FEED_MS, CHAT_MS, DEFAULT_LOOK, LOBBY_CHAT_MS, MARKET_CAPACITY, MARKET_DURATION, QUEUE_LEAD, RARE_SCARVES, ROUND_CURRENCY, dailyRare, marketQueue, marketSession, roundCloth, roundStock } from '../game/catalog.mjs';
+import { CHAT_FEED_MS, CHAT_MS, DEFAULT_LOOK, LOBBY_CHAT_MS, MARKET_CAPACITY, MARKET_DURATION, RARE_PICKUP_MS, RARE_SCARVES, ROUND_CURRENCY, dailyRare, marketSession, roundCloth, roundStock } from '../game/catalog.mjs';
 
 const midnight=Date.parse('2026-11-08T00:00:00+09:00');
 const openingHours=[12,20,22];
@@ -43,21 +43,6 @@ test('the Seoul calendar opens at noon, 20:00 and 22:00 for 45 minutes', ()=>{
     assert.equal(marketSession(at).next,dayStart+86_400_000+12*3_600_000);
     assert.equal(marketSession(at).nextSlot,1);
   }
-});
-
-test('the five-minute departure warning is followed by ten minutes of queuing', ()=>{
-  const closing=start+MARKET_DURATION, next=evening, queueAt=next-QUEUE_LEAD;
-  assert.equal(marketQueue(marketSession(closing-1),closing-1).warning,false);
-  assert.deepEqual(marketQueue(marketSession(closing),closing),{starts:queueAt,active:false,warning:false});
-  const warningAt=queueAt-5*60_000;
-  assert.equal(marketQueue(marketSession(warningAt-1),warningAt-1).warning,false);
-  assert.deepEqual(marketQueue(marketSession(warningAt),warningAt),{starts:queueAt,active:false,warning:true});
-  assert.equal(marketQueue(marketSession(queueAt-1),queueAt-1).active,false);
-  assert.deepEqual(marketQueue(marketSession(queueAt),queueAt),{starts:queueAt,active:true,warning:false});
-  assert.equal(marketQueue(marketSession(next-1),next-1).active,true);
-  assert.equal(marketQueue(marketSession(next),next).active,false);
-  const tomorrow=marketSession(night).next;
-  assert.equal(marketQueue(marketSession(tomorrow-QUEUE_LEAD),tomorrow-QUEUE_LEAD).active,true);
 });
 
 test('each round has distinct goods and rejects purchases from the other rounds', t=>{
@@ -129,6 +114,7 @@ test('the last seat admits one contender and the other can watch inventory witho
   const admitted=await Promise.all([winner,waiting].map(guest=>Promise.resolve().then(()=>sync(guest,'market'))));
   assert.equal(admitted[0].currencyGrant,ROUND_CURRENCY);
   assert.equal(admitted[1].admission,'full');
+  assert.equal(admitted[1].queuePosition,1);
   assert.equal(admitted[1].room,'lobby');
   assert.equal(admitted[1].currencyGrant,null);
   assert.equal(admitted[1].marketOnline,MARKET_CAPACITY);
@@ -139,6 +125,7 @@ test('the last seat admits one contender and the other can watch inventory witho
   assert.equal(watched.player,undefined);
   const viewpoint=market.action({action:'sync',room:'lobby',watch:true,token:waiting.token},start+500);
   assert.equal(viewpoint.crowd.length,MARKET_CAPACITY);
+  assert.equal(viewpoint.queuePosition,1);
   assert.deepEqual(Object.keys(viewpoint.crowd[0]).sort(),['id','x','z']);
   assert.equal(typeof viewpoint.crowd[0].id,'number');
   assert.equal(sync(winner,'lobby',start+600).marketOnline,MARKET_CAPACITY-1);
@@ -148,6 +135,38 @@ test('the last seat admits one contender and the other can watch inventory witho
   const closed=sync(waiting,'market',start+MARKET_DURATION);
   assert.equal(closed.admission,'closed');
   assert.equal(closed.marketOnline,0);
+});
+
+test('open-market queues survive restarts, prevent passing the first guest, and drop canceled or expired requests', t=>{
+  const data=setup();t.after(data.close);
+  let market=data.create();
+  const join=(i,room,at=start)=>market.action({action:'join',room},at,'queue-'+i);
+  const sync=(guest,at,extra={})=>market.action({action:'sync',room:'market',token:guest.token,...extra},at);
+  const early=join('early','market',start-1);
+  assert.equal(early.admission,'closed');
+  assert.equal(early.queuePosition,null);
+  for(let i=0;i<MARKET_CAPACITY;i++)assert.equal(join(i,'market').room,'market');
+  const first=join('first','market',start+1);
+  const second=join('second','market',start+1);
+  assert.equal(first.queuePosition,1);
+  assert.equal(second.queuePosition,2);
+  market=data.create();
+  const later=join('later','market',start+2);
+  assert.equal(later.queuePosition,3);
+  assert.equal(sync(second,start+3).queuePosition,2);
+  assert.equal(sync(first,start+4).currencyGrant,ROUND_CURRENCY);
+  assert.equal(sync(second,start+5,{room:'lobby',cancelQueue:true}).queuePosition,null);
+  assert.equal(sync(later,start+6).room,'market');
+  assert.equal(sync(early,evening,{entryRound:marketSession(start).round}).admission,'closed');
+  assert.equal(sync(early,evening).room,'market');
+
+  for(let i=1;i<MARKET_CAPACITY;i++)join('evening-'+i,'market',evening);
+  const disconnected=join('disconnected','market',evening+1);
+  const staying=join('staying','market',evening+1);
+  assert.equal(disconnected.queuePosition,1);
+  assert.equal(staying.queuePosition,2);
+  assert.equal(sync(staying,evening+29_000).queuePosition,2);
+  assert.equal(sync(staying,evening+61_000).room,'market');
 });
 
 test('two shoppers share one limited stock; only the first gets the last item, then the next round refills', async t=>{
@@ -388,8 +407,18 @@ test('the third round has the daily rare scarf and a same-day test cannot refill
   assert.equal(purchased.basket[0].item,rare.id);
   assert.equal(count(purchased),0);
   assert.equal(purchased.dailyRareSold,true);
-  assert.equal(market.marketStatus(third+MARKET_DURATION).dailyRareSold,true);
+  const pickup={id:first.player.id,item:rare.id,sentAt:third+100,expiresAt:third+100+RARE_PICKUP_MS};
+  const {watchId,...announcement}=purchased.rarePickup;
+  assert.ok(Number.isInteger(watchId));
+  assert.deepEqual(announcement,pickup);
   assert.equal(market.action({action:'buy',token:second.token,item:rare.id},third+100).status,409);
+  const peer=market.action({action:'sync',token:second.token},third+200);
+  assert.deepEqual(peer.rarePickup,purchased.rarePickup);
+  const watcher=market.action({action:'join',room:'lobby',watch:true},third+300);
+  assert.deepEqual(watcher.rarePickup,{...pickup,id:watchId});
+  assert.ok(watcher.crowd.some(person=>person.id===watcher.rarePickup.id));
+  assert.equal(market.action({action:'sync',token:second.token},pickup.expiresAt).rarePickup,undefined);
+  assert.equal(market.marketStatus(third+MARKET_DURATION).dailyRareSold,true);
   const later=market.action({action:'sync',token:second.token},from);
   assert.equal(count(later),0);
   assert.equal(later.stock.scarf,firstStock.scarf);

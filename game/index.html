@@ -54,9 +54,6 @@
               <strong id="queue-countdown" role="timer" aria-live="off">--:--</strong>
             </section>
           </div>
-          <p class="entrance-rare" id="entrance-rare">
-            <span>✦ 오늘의 레어</span><strong id="entrance-rare-name"></strong><small id="entrance-rare-status"></small>
-          </p>
           <div class="entrance-actions">
             <button type="button" class="enter-market" id="enter-market" aria-describedby="queue-detail">
               <span id="enter-market-label">시장입장하기</span><i data-icon="arrow" aria-hidden="true"></i>
@@ -75,8 +72,8 @@
         </div>
       </header>
       <div class="watch-side">
-        <div class="glass watch-rare">
-          <span>✦ 오늘의 레어</span><strong id="watch-rare-name"></strong><small id="watch-rare-status"></small>
+        <div class="glass watch-queue" id="watch-queue" role="status" hidden>
+          <strong id="watch-position"></strong><small>자리가 나면 순서대로 자동 입장해요.</small>
         </div>
         <details class="glass watch-hours">
           <summary>장 운영 시간</summary>
@@ -98,6 +95,7 @@
       </footer>
       <p id="watch-feedback" class="glass watch-feedback" role="status" hidden></p>
     </section>
+    <div id="rare-pickups" class="rare-pickups" aria-live="polite"></div>
     <div id="market-ui" hidden>
     <div id="world-markers" class="markers">
       <button id="scarf-marker" class="marker" data-trade="scarves"><span>✦</span> 스카프 매대</button>
@@ -152,10 +150,6 @@
       </nav>
     </header>
 
-    <p class="queue-warning" id="queue-warning" role="status" hidden>
-      <i data-icon="clock" aria-hidden="true"></i><span>다음 장 10분 전에 시작 화면으로 자동 이동해요.</span>
-      <strong id="queue-warning-time" aria-hidden="true"></strong>
-    </p>
     <div class="hud">
       <div class="live" id="live" title="현재 접속 상태"><span class="lamp"></span><span id="live-mode">장터 연결 중</span><span class="divider"></span><i data-icon="users"></i><b id="online">–</b></div>
       <div class="market-stats">
