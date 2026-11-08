@@ -146,17 +146,16 @@ export const seoulDay = now => Math.floor((now + seoulOffset) / dayLength);
 export const seoulDayStart = now => seoulDay(now) * dayLength - seoulOffset;
 export const dailyRare = now => RARE_SCARVES[((seoulDay(now) % RARE_SCARVES.length) + RARE_SCARVES.length) % RARE_SCARVES.length];
 export const MARKET_DURATION = 45 * minute;
-export const MARKET_INTERVAL = 60 * minute;
 export const QUEUE_LEAD = 10 * minute;
+export const MARKET_HOURS = [
+  { hour: 12, name: '점심 장' },
+  { hour: 20, name: '퇴근 장' },
+  { hour: 22, name: '야시장' },
+];
 
 function openings(day) {
-  // The Seoul date gives everyone the same first opening, even after a restart.
-  let roll = Math.imul(day ^ 0x21f0aaad, 53);
-  roll = Math.imul(roll ^ (roll >>> 16), 0x45d9f3b);
-  roll = Math.imul(roll ^ (roll >>> 16), 0x45d9f3b);
-  roll = (roll ^ (roll >>> 16)) >>> 0;
-  const first = day * dayLength - seoulOffset + (9 * 60 + roll % 180) * minute;
-  return [first, first + MARKET_INTERVAL, first + 2 * MARKET_INTERVAL];
+  const midnight = day * dayLength - seoulOffset;
+  return MARKET_HOURS.map(({ hour }) => midnight + hour * 60 * minute);
 }
 
 export function marketSession(now) {

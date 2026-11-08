@@ -1,4 +1,4 @@
-import { AVATAR_OPTIONS, CHAT_FEED_MS, CHAT_LIMIT, CHAT_MS, DEFAULT_LOOK, EMPTY_STOCK, JUNK, LINES, LOBBY_CHAT_LIMIT, LOBBY_CHAT_MS, MARKET_CAPACITY, MARKET_ITEMS, RARE_MARKET_SLOT, ROUND_CURRENCY, SCARVES, SPAWN, avatarOptionsFor, chatText, dailyRare, marketQueue, marketRare, marketSession, niceName, normalizeLook, roundCloth, roundStock, seoulDay, seoulDayStart } from './catalog.mjs';
+import { AVATAR_OPTIONS, CHAT_FEED_MS, CHAT_LIMIT, CHAT_MS, DEFAULT_LOOK, EMPTY_STOCK, JUNK, LINES, LOBBY_CHAT_LIMIT, LOBBY_CHAT_MS, MARKET_CAPACITY, MARKET_HOURS, MARKET_ITEMS, RARE_MARKET_SLOT, ROUND_CURRENCY, SCARVES, SPAWN, avatarOptionsFor, chatText, dailyRare, marketQueue, marketRare, marketSession, niceName, normalizeLook, roundCloth, roundStock, seoulDay, seoulDayStart } from './catalog.mjs';
 import { MARKET_API } from './config.mjs';
 import { createWorld, drawAvatarPreview } from './world.mjs';
 
@@ -8,7 +8,7 @@ const shapes = {
   trophy: '<path d="M7 3h10v6a5 5 0 0 1-10 0V3zM7 5H3v2a4 4 0 0 0 4 4m10-6h4v2a4 4 0 0 1-4 4m-5 3v5m-4 2h8"/>',
   user: '<circle cx="12" cy="8" r="3.2"/><path d="M5 20a7 7 0 0 1 14 0"/>',
   users: '<circle cx="9" cy="8" r="3"/><path d="M3 20v-2a6 6 0 0 1 12 0v2m1-15a3 3 0 0 1 0 6m1 3a5 5 0 0 1 4 5v1"/>',
-  down: '<path d="m6 9 6 6 6-6"/>', left: '<path d="m15 5-7 7 7 7"/>', right: '<path d="m9 5 7 7-7 7"/>', arrow: '<path d="M4 12h15m-6-6 6 6-6 6"/>', close: '<path d="m6 6 12 12M18 6 6 18"/>',
+  down: '<path d="m6 9 6 6 6-6"/>', left: '<path d="m15 5-7 7 7 7"/>', arrow: '<path d="M4 12h15m-6-6 6 6-6 6"/>', close: '<path d="m6 6 12 12M18 6 6 18"/>',
   pin: '<path d="M20 10c0 6-8 11-8 11S4 16 4 10a8 8 0 1 1 16 0z"/><circle cx="12" cy="10" r="2.5"/>',
   mute: '<path d="M3 9h4l5-4v14l-5-4H3zm13 1 5 5m0-5-5 5"/>',
   sound: '<path d="M3 9h4l5-4v14l-5-4H3zm13-1a6 6 0 0 1 0 8m3-11a10 10 0 0 1 0 14"/>',
@@ -49,7 +49,7 @@ let enteredMarket=false, enteringMarket=false, roomRevision=0;
 let watchingMarket=false;
 let feedWatching=false;
 let watchStatus, watchSignature='', watchRefreshAt=0;
-let entranceSchedule, selectedMarket=0;
+let entranceSchedule;
 let muted=true, audioCtx, toastTimer, acting=false;
 let profileTab='avatar', profileFeedback='';
 const profileDrafts=new Map();
@@ -322,6 +322,14 @@ function countdownText(ms){
   return (hours?hours+':':'')+String(Math.floor(seconds/60)%60).padStart(2,'0')+':'+String(seconds%60).padStart(2,'0');
 }
 function setText(id,text){const node=$(id);if(node.textContent!==text)node.textContent=text;}
+function showMarketHours(){
+  const rows=MARKET_HOURS.map(({hour,name})=>{
+    const time=String(hour).padStart(2,'0')+':00';
+    return '<li><span>'+name+'</span><time datetime="'+time+'">'+time+'</time></li>';
+  }).join('');
+  $('market-hours-list').innerHTML=rows;
+  $('watch-hours-list').innerHTML=rows;
+}
 function setWatchStatus(data){
   if(!data.stock||!Number.isFinite(data.now)||data.now<(watchStatus?.now??0))return;
   const {now, round, slot, open, closes, next, rare, dailyRareSold, stock, revision, marketOnline, marketCapacity}=data;
@@ -347,22 +355,12 @@ function seatsFull(){
   return watchStatus?.marketOnline >= (watchStatus?.marketCapacity??MARKET_CAPACITY);
 }
 function renderEntrance(session, now, waiting){
-  const available=selectedMarket===0;
   const open=session.open&&now<session.closes;
   const full=open&&watchStatus?.round===session.round&&seatsFull();
   const button=$('enter-market');
-  button.disabled=!available||!open||full||enteringMarket;
-  $('spectate-market').hidden=!available;
-  $('entrance-rare').hidden=!available;
-  const label=!available?'오픈 준비 중':enteringMarket?'입장 확인 중':full?'정원 만석':waiting.active?'줄서기 중':open?'시장입장하기':'개장 대기';
+  button.disabled=!open||full||enteringMarket;
+  const label=enteringMarket?'입장 확인 중':full?'정원 만석':waiting.active?'줄서기 중':open?'시장입장하기':'개장 대기';
   setText('enter-market-label',label);
-  if(!available){
-    $('queue-card').dataset.state='preparing';
-    setText('queue-heading','장 준비 중');
-    setText('queue-detail','개장 일정을 준비하고 있어요');
-    setText('queue-countdown','--:--');
-    return;
-  }
   const rare=rareInfo(session,now);
   setText('entrance-rare-name',rare.name);
   setText('entrance-rare-status',rare.status);
@@ -374,14 +372,6 @@ function renderEntrance(session, now, waiting){
   const openDetail=endpoint?'입장 '+marketOnline+'/'+capacity+'명 · '+(full?'구경 가능':'자리 있음'):'혼자 체험';
   setText('queue-detail',open?openDetail:waiting.active?'개장 '+nextDate+' · 한국 시간':'줄서기 '+shortTime.format(waiting.starts)+' · 개장 '+nextDate);
   setText('queue-countdown',countdownText((open?session.closes:session.next)-now));
-}
-function selectMarket(index){
-  const track=$('market-slides');
-  selectedMarket=(index+track.children.length)%track.children.length;
-  track.style.transform='translateX(-'+(100*selectedMarket)+'%)';
-  [...track.children].forEach((slide,i)=>slide.setAttribute('aria-hidden',String(i!==selectedMarket)));
-  const now=Date.now()+timeOffset, session=scheduleAt(now);
-  renderEntrance(session,now,marketQueue(session,now));
 }
 function returnToEntrance(session, message){
   if(!enteredMarket)return;
@@ -403,7 +393,8 @@ function returnToEntrance(session, message){
   $('market-ui').hidden=true;
   $('world').setAttribute('aria-hidden','true');
   $('entrance').hidden=false;
-  selectMarket(0);
+  const now=Date.now()+timeOffset, current=scheduleAt(now);
+  renderEntrance(current,now,marketQueue(current,now));
   const notice=$('entrance-notice');
   notice.textContent=message??(session?session.nextSlot+'차 장 줄서기가 시작됐어요. 개장하면 입장할 수 있어요.':'시작 화면으로 돌아왔어요.');
   notice.hidden=false;
@@ -1070,7 +1061,7 @@ function admissionMessage(data){
 }
 async function enterMarket(){
   const now=Date.now()+timeOffset, session=scheduleAt(now);
-  if(enteredMarket||enteringMarket||selectedMarket!==0||!session.open||
+  if(enteredMarket||enteringMarket||!session.open||
     (watchStatus?.round===session.round&&seatsFull()))return;
   if(!endpoint){showMarket(session);setModel(demo());return;}
   enteringMarket=true;
@@ -1130,8 +1121,7 @@ $('watch-wide').onclick=()=>setWatchView('wide');
 $('watch-stall').onclick=()=>setWatchView('stall');
 $('watch-refresh').onclick=refreshSpectator;
 $('watch-stock-toggle').onclick=()=>setWatchPanel($('watch-panel').hidden);
-$('market-prev').onclick=()=>selectMarket(selectedMarket-1);
-$('market-next').onclick=()=>selectMarket(selectedMarket+1);
+showMarketHours();
 tick();
 if(endpoint)queue(0);else setModel(demo());
 setInterval(tick,500);

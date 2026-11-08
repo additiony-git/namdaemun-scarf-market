@@ -2,10 +2,11 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { DatabaseSync } from 'node:sqlite';
 import { Market, endpoint } from '../server/market.mjs';
-import { CHAT_FEED_MS, CHAT_MS, DEFAULT_LOOK, LOBBY_CHAT_MS, MARKET_CAPACITY, MARKET_DURATION, MARKET_INTERVAL, QUEUE_LEAD, RARE_SCARVES, ROUND_CURRENCY, dailyRare, marketQueue, marketSession, roundCloth, roundStock } from '../game/catalog.mjs';
+import { CHAT_FEED_MS, CHAT_MS, DEFAULT_LOOK, LOBBY_CHAT_MS, MARKET_CAPACITY, MARKET_DURATION, QUEUE_LEAD, RARE_SCARVES, ROUND_CURRENCY, dailyRare, marketQueue, marketSession, roundCloth, roundStock } from '../game/catalog.mjs';
 
 const midnight=Date.parse('2026-11-08T00:00:00+09:00');
-const start=marketSession(midnight).next;
+const openingHours=[12,20,22];
+const [start,evening,night]=openingHours.map(hour=>midnight+hour*3_600_000);
 const firstStock=roundStock(1);
 
 function setup() {
@@ -23,17 +24,13 @@ function setup() {
   return {create, db, close:()=>db.close()};
 }
 
-test('the Seoul calendar opens three 45-minute markets an hour apart', ()=>{
-  const days=[];
+test('the Seoul calendar opens at noon, 20:00 and 22:00 for 45 minutes', ()=>{
   for(let day=0;day<7;day++){
     const dayStart=midnight+day*86_400_000;
     let at=dayStart;
-    const starts=[];
     for(let slot=1;slot<=3;slot++){
       const opening=marketSession(at).next;
-      const hour=(opening-dayStart)/3_600_000;
-      if(slot===1)assert.ok(hour>=9&&hour<12);
-      else assert.equal(opening-dayStart,starts.at(-1)+MARKET_INTERVAL);
+      assert.equal(opening,dayStart+openingHours[slot-1]*3_600_000);
       assert.equal(marketSession(opening-1).nextSlot,slot);
       assert.equal(marketSession(opening-1).open,false);
       assert.equal(marketSession(opening).open,true);
@@ -42,23 +39,24 @@ test('the Seoul calendar opens three 45-minute markets an hour apart', ()=>{
       assert.equal(marketSession(opening+MARKET_DURATION-1).open,true);
       at=opening+MARKET_DURATION;
       assert.equal(marketSession(at).open,false);
-      starts.push(opening-dayStart);
     }
-    assert.ok(marketSession(at).next>=dayStart+86_400_000);
-    days.push(starts);
+    assert.equal(marketSession(at).next,dayStart+86_400_000+12*3_600_000);
+    assert.equal(marketSession(at).nextSlot,1);
   }
-  assert.ok(new Set(days.map(JSON.stringify)).size>1);
 });
 
 test('the five-minute departure warning is followed by ten minutes of queuing', ()=>{
-  const closing=start+MARKET_DURATION, next=start+MARKET_INTERVAL, queueAt=next-QUEUE_LEAD;
+  const closing=start+MARKET_DURATION, next=evening, queueAt=next-QUEUE_LEAD;
   assert.equal(marketQueue(marketSession(closing-1),closing-1).warning,false);
-  assert.deepEqual(marketQueue(marketSession(closing),closing),{starts:queueAt,active:false,warning:true});
+  assert.deepEqual(marketQueue(marketSession(closing),closing),{starts:queueAt,active:false,warning:false});
+  const warningAt=queueAt-5*60_000;
+  assert.equal(marketQueue(marketSession(warningAt-1),warningAt-1).warning,false);
+  assert.deepEqual(marketQueue(marketSession(warningAt),warningAt),{starts:queueAt,active:false,warning:true});
   assert.equal(marketQueue(marketSession(queueAt-1),queueAt-1).active,false);
   assert.deepEqual(marketQueue(marketSession(queueAt),queueAt),{starts:queueAt,active:true,warning:false});
   assert.equal(marketQueue(marketSession(next-1),next-1).active,true);
   assert.equal(marketQueue(marketSession(next),next).active,false);
-  const tomorrow=marketSession(start+2*MARKET_INTERVAL).next;
+  const tomorrow=marketSession(night).next;
   assert.equal(marketQueue(marketSession(tomorrow-QUEUE_LEAD),tomorrow-QUEUE_LEAD).active,true);
 });
 
@@ -68,7 +66,7 @@ test('each round has distinct goods and rejects purchases from the other rounds'
   const guest=market.action({action:'join'},start);
   const allIds=new Set();
   for(let slot=1;slot<=3;slot++){
-    const at=start+(slot-1)*MARKET_INTERVAL;
+    const at=[start,evening,night][slot-1];
     const items=roundCloth(slot);
     assert.equal(items.filter(i=>i.group==='scarf').length,6);
     assert.equal(items.filter(i=>i.group==='hanky').length,4);
@@ -101,7 +99,7 @@ test('entrants receive one currency grant per open round and keep unspent funds'
   const reentry=sync('market',start+1200,data.create());
   assert.equal(reentry.currencyGrant,null);
   assert.equal(reentry.player.cash,4300);
-  const second=sync('market',start+MARKET_INTERVAL);
+  const second=sync('market',evening);
   assert.equal(second.currencyGrant,5000);
   assert.equal(second.player.cash,9300);
 });
@@ -373,7 +371,7 @@ test('a regular market can close after a test ends during its opening', t=>{
 
 test('the third round has the daily rare scarf and a same-day test cannot refill it', t=>{
   const data=setup();t.after(data.close);
-  const third=start+2*MARKET_INTERVAL;
+  const third=night;
   const from=third+MARKET_DURATION+60_000;
   const market=data.create({from,until:from+120_000});
   const first=market.action({action:'join'},start);
@@ -381,7 +379,7 @@ test('the third round has the daily rare scarf and a same-day test cannot refill
   const rare=dailyRare(start);
   const count=state=>RARE_SCARVES.reduce((sum,item)=>sum+state.stock[item.id],0);
   assert.equal(count(first),0);
-  assert.equal(count(market.inventory(start+MARKET_INTERVAL)),0);
+  assert.equal(count(market.inventory(evening)),0);
   assert.equal(count(market.inventory(third)),1);
   market.action({action:'sync',token:first.token},third);
   market.action({action:'sync',token:second.token},third);
@@ -395,8 +393,7 @@ test('the third round has the daily rare scarf and a same-day test cannot refill
   const later=market.action({action:'sync',token:second.token},from);
   assert.equal(count(later),0);
   assert.equal(later.stock.scarf,firstStock.scarf);
-  const nextDay=marketSession(midnight+86_400_000).next;
-  const tomorrow=market.action({action:'sync',token:second.token},nextDay+2*MARKET_INTERVAL);
+  const tomorrow=market.action({action:'sync',token:second.token},night+86_400_000);
   assert.equal(count(tomorrow),1);
   assert.equal(tomorrow.dailyRareSold,false);
   assert.notEqual(tomorrow.rare,rare.id);

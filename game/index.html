@@ -45,18 +45,11 @@
         <div class="entrance-deck">
           <p id="entrance-notice" class="entrance-notice" role="status" tabindex="-1" hidden></p>
           <div class="entrance-controls">
-            <section class="market-carousel" aria-label="상회 둘러보기" aria-roledescription="슬라이드 배너">
-              <button type="button" id="market-prev" class="carousel-arrow" aria-label="이전 상회"><i data-icon="left"></i></button>
-              <div class="carousel-window">
-                <div class="carousel-track" id="market-slides" aria-live="polite">
-                  <div class="market-slide" data-color="scarf"><span>01 / 03 · 첫 번째 시장</span><strong>남대문 스카프 상회</strong></div>
-                  <div class="market-slide" data-color="junk" aria-hidden="true"><span>02 / 03 · 오픈 준비 중</span><strong>을지로 잡화 상회</strong></div>
-                  <div class="market-slide" data-color="vintage" aria-hidden="true"><span>03 / 03 · 오픈 준비 중</span><strong>광장 빈티지 상회</strong></div>
-                </div>
-              </div>
-              <button type="button" id="market-next" class="carousel-arrow" aria-label="다음 상회"><i data-icon="right"></i></button>
+            <section class="market-hours-card" aria-labelledby="market-hours-title">
+              <div class="market-hours-heading"><strong id="market-hours-title">남대문 스카프 상회</strong><small>매일 · 한국 시간 · 45분</small></div>
+              <ol class="market-hours-list" id="market-hours-list" aria-label="매일 개장 시간"></ol>
             </section>
-            <section class="queue-card" id="queue-card" aria-label="선택한 상회의 장터 상태">
+            <section class="queue-card" id="queue-card" aria-label="남대문 스카프 상회 장터 상태">
               <div><strong id="queue-heading">다음 장</strong><small id="queue-detail">개장 시간을 확인하고 있어요</small></div>
               <strong id="queue-countdown" role="timer" aria-live="off">--:--</strong>
             </section>
@@ -81,8 +74,15 @@
           <button class="glass watch-control" id="watch-exit" type="button"><i data-icon="left" aria-hidden="true"></i> 돌아가기</button>
         </div>
       </header>
-      <div class="glass watch-rare">
-        <span>✦ 오늘의 레어</span><strong id="watch-rare-name"></strong><small id="watch-rare-status"></small>
+      <div class="watch-side">
+        <div class="glass watch-rare">
+          <span>✦ 오늘의 레어</span><strong id="watch-rare-name"></strong><small id="watch-rare-status"></small>
+        </div>
+        <details class="glass watch-hours">
+          <summary>장 운영 시간</summary>
+          <small>매일 · 한국 시간 · 45분</small>
+          <ol class="market-hours-list" id="watch-hours-list" aria-label="매일 개장 시간"></ol>
+        </details>
       </div>
       <aside class="watch-panel" id="watch-panel" aria-label="스카프 매대 재고" hidden>
         <div class="watch-summary"><strong>매대 재고</strong><span id="watch-time" role="timer" aria-live="off"></span></div>

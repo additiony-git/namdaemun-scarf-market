@@ -89,21 +89,18 @@ canvas { position: absolute; inset: 0; display: block; width: 100%; height: 100%
 }
 .entrance-rare strong { color: var(--text); }
 .entrance-rare small { color: #eed3b2; white-space: nowrap; }
-.market-carousel, .queue-card {
+.market-hours-card, .queue-card {
   min-width: 0; min-height: 56px; border: 1px solid #e2a7669c; border-radius: 9px;
   background: #251810f5; box-shadow: 0 3px 14px #170c08a0;
 }
-.market-carousel { display: grid; grid-template-columns: 36px minmax(0,1fr) 36px; align-items: stretch; }
-.carousel-arrow { display: grid; place-items: center; min-height: 42px; padding: 0; border-radius: 8px; color: #f6ca75; }
-.carousel-arrow:hover { background: #ffc66f24; }
-.carousel-arrow:focus-visible { outline-offset: -3px; }
-.carousel-window { overflow: hidden; }
-.carousel-track { display: flex; height: 100%; transition: transform .22s ease; }
-.market-slide { flex: 0 0 100%; min-width: 0; display: grid; align-content: center; gap: 2px; padding: 5px 3px; text-align: center; }
-.market-slide span { color: #f8d18e; font-size: 10px; font-weight: 850; letter-spacing: .06em; }
-.market-slide strong { font-size: clamp(12px, 3.7vw, 17px); white-space: nowrap; color: #fff0d8; letter-spacing: -.045em; }
-.market-slide[data-color=junk] span { color: #c4dfad; }
-.market-slide[data-color=vintage] span { color: #e6c7ed; }
+.market-hours-card { padding: 7px 9px; }
+.market-hours-heading { display: flex; align-items: baseline; flex-wrap: wrap; justify-content: space-between; gap: 2px 7px; }
+.market-hours-heading strong { color: #fff0d8; font-size: 12px; }
+.market-hours-heading small, .watch-hours > small { color: #e4ccb2; font-size: 10px; }
+.market-hours-list { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 4px; list-style: none; padding: 0; margin: 5px 0 0; }
+.market-hours-list li { display: grid; grid-template-columns: 1fr; gap: 1px; padding: 3px 2px; border-radius: 4px; background: #493021; text-align: center; }
+.market-hours-list span { color: #e4ccb2; font-size: 10px; }
+.market-hours-list time { color: #ffe09b; font-size: 13px; font-weight: 850; font-variant-numeric: tabular-nums; }
 .queue-card { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 7px 11px; }
 .queue-card div { min-width: 0; }
 #queue-heading, #queue-detail { display: block; }
@@ -113,7 +110,6 @@ canvas { position: absolute; inset: 0; display: block; width: 100%; height: 100%
 .queue-card[data-state=queue] { border-color: #ffcf79; box-shadow: 0 0 18px #f6b0475c; }
 .queue-card[data-state=open] #queue-countdown { color: #c9dea5; }
 .queue-card[data-state=full] { border-color: #e8a473; }
-.queue-card[data-state=preparing] #queue-countdown { color: #c5b09c; }
 .entrance-notice {
   justify-self: center; margin: 0; padding: 5px 9px; border-radius: 6px; background: #2d1c13f5; color: #ffe5b2;
   font-size: 12px; font-weight: 850; text-align: center; word-break: keep-all;
@@ -134,7 +130,6 @@ canvas { position: absolute; inset: 0; display: block; width: 100%; height: 100%
 .entrance-actions .enter-market { min-width: 0; min-height: 51px; padding-inline: 12px 30px; }
 .entrance-actions .enter-market:disabled { padding-inline: 12px; }
 .entrance-actions .enter-market:disabled i { visibility: hidden; }
-.entrance-actions:has(.watch-market[hidden]) { grid-template-columns: 1fr; }
 .watch-market { min-width: 0; padding: 7px 11px; font-size: 14px; font-weight: 850; white-space: nowrap; }
 .watch-market i { color: var(--gold); }
 .watch-summary { display: flex; justify-content: space-between; gap: 8px; margin: 3px 0 9px; color: var(--gold); font-size: 13px; }
@@ -152,8 +147,13 @@ canvas { position: absolute; inset: 0; display: block; width: 100%; height: 100%
 .watch-header-actions, .watch-views { display: flex; gap: 5px; }
 .watch-control { min-height: 35px; padding: 6px 9px; white-space: nowrap; font-size: 12px; font-weight: 850; }
 .watch-control[aria-pressed=true] { border-color: #e5b168; color: #ffe3af; background: #59402a; }
-.watch-rare { position: absolute; top: calc(var(--top) + 72px); left: var(--edge); display: grid; gap: 3px; padding: 8px 11px; }
+.watch-side { position: absolute; top: calc(var(--top) + 72px); left: var(--edge); display: grid; gap: 6px; justify-items: start; }
+.watch-rare { display: grid; gap: 3px; padding: 8px 11px; }
 .watch-rare strong { font-size: 13px; }
+.watch-hours { pointer-events: auto; padding: 6px 8px; }
+.watch-hours summary { cursor: pointer; color: #ffe09b; font-size: 11px; font-weight: 850; }
+.watch-hours[open] { width: min(225px, calc(100vw - 2 * var(--edge))); }
+.watch-hours > small { display: block; margin-top: 4px; }
 .watch-panel { position: absolute; display: flex; flex-direction: column; top: calc(var(--top) + 45px); right: var(--edge); bottom: calc(var(--bottom) + 49px); width: min(335px, 40vw); padding: 12px; border: 1px solid #ae8051; border-radius: 9px; background: #231911ee; }
 .watch-panel #watch-refresh { align-self: flex-start; margin-top: 6px; }
 .watch-footer { position: absolute; bottom: var(--bottom); left: var(--edge); right: var(--edge); display: flex; align-items: center; justify-content: space-between; gap: 6px; }
@@ -165,7 +165,7 @@ canvas { position: absolute; inset: 0; display: block; width: 100%; height: 100%
 @media (max-width: 530px) {
   .entrance-deck { width: min(340px, 100%); gap: 7px; }
   .entrance-controls { grid-template-columns: 1fr; gap: 5px; }
-  .market-carousel, .queue-card { min-height: 45px; }
+  .market-hours-card, .queue-card { min-height: 45px; }
   .entrance-actions .enter-market { padding-inline: 9px 25px; font-size: 15px; }
   .entrance-actions .enter-market i { right: 6px; }
   .watch-market { font-size: 12px; }
@@ -175,15 +175,15 @@ canvas { position: absolute; inset: 0; display: block; width: 100%; height: 100%
   .watch-brand strong { font-size: 12px; }
   .watch-control { padding: 5px 7px; font-size: 11px; }
   .watch-header-actions i { display: none; }
-  .watch-rare { top: calc(var(--top) + 62px); }
+  .watch-side { top: calc(var(--top) + 62px); }
   .watch-panel { top: auto; bottom: calc(var(--bottom) + 43px); left: var(--edge); width: auto; max-height: 38dvh; }
 }
 @media (max-height: 440px) {
   .entrance-inner { padding-top: max(10px, env(safe-area-inset-top)); padding-bottom: max(14px, env(safe-area-inset-bottom)); }
   .entrance-deck { gap: 6px; }
-  .market-carousel, .queue-card { min-height: 43px; }
+  .market-hours-card, .queue-card { min-height: 43px; }
 }
-@media (prefers-reduced-motion: reduce) { .enter-market, .carousel-track { transition: none; } }
+@media (prefers-reduced-motion: reduce) { .enter-market { transition: none; } }
 .queue-warning {
   position: absolute; z-index: 5; top: calc(var(--top) + 59px); left: 50%; transform: translateX(-50%);
   display: flex; align-items: center; gap: 7px; width: max-content; max-width: calc(100% - 24px);
