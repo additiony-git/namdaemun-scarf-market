@@ -807,6 +807,22 @@ async function claimRoomRequest(revision){
   busy=true;
   return true;
 }
+async function postRoomChat(text,room,revision){
+  try{
+    return await request('chat',{text},room);
+  }catch(error){
+    // A market chat conflict means the server rejected it before posting, so one retry is safe.
+    if(room!=='market'||error.status!==409||revision!==roomRevision)throw error;
+  }
+  const seat=await request('sync',{watch:true},'market');
+  if(revision!==roomRevision)return;
+  if(seat.room==='lobby'){
+    showMarketQueue(seat,'시장에 다시 들어가면 작성한 채팅을 이어서 보낼 수 있어요.');
+    return;
+  }
+  setModel(seat);
+  return request('chat',{text},room);
+}
 async function sendChat(room){
   if(room!==activeRoom()||sendingChat)return;
   if(mode!=='online'){toast('장터에 연결한 뒤 다시 시도해 주세요.');return;}
@@ -829,15 +845,20 @@ async function sendChat(room){
   try{
     claimed=await claimRoomRequest(revision);
     if(!claimed)return;
-    const result=await request('chat',{text},room);
-    if(revision!==roomRevision)return;
+    const result=await postRoomChat(text,room,revision);
+    if(!result||revision!==roomRevision)return;
     setModel(result);
     if(input.value===original){
       input.value='';
       if(!lobby)setChatOpen(false);
     }
   }catch(error){
-    if(revision===roomRevision)report(error.message);
+    if(revision===roomRevision){
+      if(!lobby&&error.status===409){
+        queue(0);
+        report('시장 연결을 다시 확인하고 있어요. 작성한 채팅은 입력란에 남아 있어요.');
+      }else report(error.message);
+    }
   }finally{
     if(claimed)busy=false;
     sendingChat=false;
@@ -913,6 +934,14 @@ function queue(ms) {
   clearTimeout(syncTimer);
   syncTimer=setTimeout(connect,ms);
 }
+function showMarketQueue(data,message=admissionMessage(data)){
+  returnToEntrance(message);
+  waitingPosition=data.queuePosition??0;
+  entryRequested=Boolean(waitingPosition);
+  mode='online';
+  openSpectator(message);
+  setModel(data);
+}
 async function connect(){
   if(!endpoint)return;
   if(busy){queue(800);return;}
@@ -931,10 +960,13 @@ async function connect(){
     if(revision!==roomRevision)return;
     const wasWaiting=Boolean(waitingPosition);
     cancelQueue=false;
+    if(enteredMarket&&data.room==='lobby'){
+      showMarketQueue(data);
+      return;
+    }
     waitingPosition=data.queuePosition??0;
     entryRequested=Boolean(waitingPosition);
     if(!enteredMarket&&data.room==='market')showMarket(data);
-    else if(enteredMarket&&data.room==='lobby')returnToEntrance(admissionMessage(data));
     else if(!wasWaiting&&waitingPosition){
       openSpectator();
       $('watch-queue-status').focus({preventScroll:true});
