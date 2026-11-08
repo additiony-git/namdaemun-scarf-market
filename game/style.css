@@ -525,10 +525,60 @@ kbd { display: inline-grid; place-items: center; min-width: 21px; height: 22px; 
 .empty { padding: 15px 0; text-align: center; color: var(--muted); font-size: 13px; }
 
 dialog { width: min(500px, calc(100% - 28px)); max-height: 85dvh; padding: 17px; color: var(--text); background: #241b16; border: 1px solid #a3724e; border-radius: 14px; box-shadow: 0 16px 75px #080504b0; }
-#account-modal { max-width: 360px; }
-.account-speech { position: relative; width: 100%; max-width: none; margin: 2px 0 14px; transform: none; }
-.account-speech::after { left: 19px; }
-#google-button { min-height: 40px; }
+#account-modal {
+  width: min(384px, calc(100% - 24px)); max-height: min(85dvh, calc(100dvh - var(--top) - var(--bottom)));
+  padding: 0; border-color: #ba8658; border-radius: 15px;
+  background: linear-gradient(155deg, #35241a, #211813 68%);
+  overflow: auto; overscroll-behavior: contain;
+}
+.account-head {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  padding: 19px clamp(14px, 5vw, 24px) 13px; border-bottom: 1px solid #af784e59;
+  background: repeating-linear-gradient(115deg, #edb763 0 18px, #b75c40 18px 36px, #82a79d 36px 54px) top / 100% 4px no-repeat,
+    linear-gradient(100deg, #6d3927b3, #43291b80);
+}
+.account-kicker {
+  display: flex; align-items: center; gap: 5px; margin: 0 0 4px;
+  color: #ffda96; font-size: 11px; font-weight: 850;
+}
+.account-kicker i { width: 13px; height: 13px; }
+.account-head h2 { margin: 0; font-size: clamp(21px, 6vw, 27px); line-height: 1.15; letter-spacing: -.045em; }
+#close-account { flex: none; width: 44px; height: 44px; background: #251910a8; }
+.account-body {
+  display: grid; grid-template-columns: minmax(0, 1fr); justify-items: center; gap: 14px;
+  padding: 17px clamp(14px, 5vw, 24px);
+  text-align: center;
+}
+.account-vendor { display: flex; align-items: center; gap: 10px; width: 100%; }
+.account-vendor > img {
+  flex: none; border: 1px solid #ad7b50; border-radius: 9px; background: #533422;
+}
+.account-speech.speech {
+  flex: 1; min-width: 0; position: relative; max-width: none; transform: none;
+  padding: 7px 10px; font-size: 13px; background: #fff0cf;
+}
+.account-speech::after {
+  left: -5px; bottom: calc(50% - 5px); transform: rotate(135deg);
+}
+#account-summary, #account-link-note, #account-feedback {
+  margin: 0; color: var(--muted); font-size: 13px; line-height: 1.5;
+  word-break: keep-all; overflow-wrap: anywhere; text-wrap: balance;
+}
+#account-summary { max-width: 270px; color: #e9cfb4; }
+#account-link-note { font-size: 11px; }
+.account-actions { display: grid; justify-items: stretch; gap: 8px; width: min(100%, 240px); }
+#google-button { display: grid; justify-items: center; }
+#account-feedback { color: #ffda96; }
+#account-feedback:empty { position: absolute; }
+.account-action {
+  display: flex; align-items: center; justify-content: center; gap: 6px; min-height: 44px;
+  padding: 5px 8px; font-size: 13px; font-weight: 800; color: #ffe3b4; background: #432d20;
+}
+.account-action:hover, #close-account:hover { background: #604028; }
+.account-action i { width: 14px; height: 14px; }
+.account-footer { border-top: 1px solid #af784e44; text-align: center; }
+.account-footer a { display: inline-flex; align-items: center; min-height: 44px; padding-inline: 10px; }
+.account-footer a:focus-visible { outline: 2px solid var(--gold); outline-offset: -3px; }
 .account-privacy { color: var(--gold); font-size: 12px; }
 .entrance-privacy { justify-self: center; padding: 2px 6px; border-radius: 4px; background: #251810e8; }
 dialog::backdrop { background: #130e0bc9; backdrop-filter: blur(3px); }

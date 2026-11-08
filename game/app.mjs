@@ -217,32 +217,44 @@ function loadGoogle(){
     script.src='https://accounts.google.com/gsi/client';
     script.async=true;
     script.onload=()=>resolve(globalThis.google.accounts.id);
-    script.onerror=()=>{script.remove();googleScript=undefined;reject(Error('Google 로그인 버튼을 불러오지 못했어요. 다시 열어 주세요.'));};
+    script.onerror=()=>{script.remove();googleScript=undefined;reject(Error('Google 로그인 버튼을 불러오지 못했어요.'));};
     document.head.append(script);
   });
   return googleScript;
 }
-async function openGoogleLogin(fromEntry=false){
+function openGoogleLogin(fromEntry=false){
   if(!loginNeeded()||accountDialog.open)return;
-  const attempt=++loginAttempt;
-  const guestToken=read(tokenKey);
+  setText('account-title',fromEntry?'시장에 들어가기':'Google 로그인');
   $('entry-login-speech').hidden=!fromEntry;
-  accountDialog.setAttribute('aria-describedby',fromEntry?'entry-login-line':'account-summary');
-  $('account-link-note').hidden=!googleClientId||!guestToken;
-  $('account-summary').hidden=!googleClientId&&fromEntry;
-  $('account-watch').hidden=Boolean(googleClientId)||watchingMarket;
-  $('google-button').hidden=!googleClientId;
-  $('google-button').replaceChildren();
-  setText('account-feedback',googleClientId?'Google 로그인을 준비하고 있어요.':'Google 로그인 준비 중이에요. 시장은 구경할 수 있어요.');
+  $('account-summary').hidden=!googleClientId;
+  $('account-link-note').hidden=!googleClientId||!read(tokenKey);
+  $('account-watch').hidden=watchingMarket;
+  accountDialog.setAttribute('aria-describedby',fromEntry?'entry-login-line':googleClientId?'account-summary':'account-feedback');
   accountDialog.showModal();
+  void prepareGoogleLogin();
+}
+function showGoogleLoginError(error,attempt){
+  if(attempt!==loginAttempt||!accountDialog.open)return;
+  setText('account-feedback',error.message);
+  $('account-retry').hidden=false;
+}
+async function prepareGoogleLogin(){
+  const attempt=++loginAttempt;
+  const button=$('google-button');
+  if(document.activeElement===$('account-retry'))$('close-account').focus();
+  $('account-retry').hidden=true;
+  button.hidden=true;
+  button.replaceChildren();
+  setText('account-feedback',googleClientId?'Google 로그인을 준비하고 있어요.':'아직 Google 로그인을 사용할 수 없어요.');
   if(!googleClientId)return;
   try{
-    const [google,{nonce}]=await Promise.all([loadGoogle(),marketPost({action:'google-challenge',guestToken})]);
+    const [google,{nonce}]=await Promise.all([loadGoogle(),marketPost({action:'google-challenge',guestToken:read(tokenKey)})]);
     if(attempt!==loginAttempt||!accountDialog.open)return;
     google.initialize({client_id:googleClientId,nonce,callback:async ({credential})=>{
       if(attempt!==loginAttempt||!accountDialog.open)return;
-      loginAttempt++;
-      $('google-button').replaceChildren();
+      const verification=++loginAttempt;
+      button.hidden=true;
+      button.replaceChildren();
       setText('account-feedback','Google 계정을 확인하고 있어요.');
       try{
         const result=await marketPost({action:'google-login',credential});
@@ -250,11 +262,15 @@ async function openGoogleLogin(fromEntry=false){
         accountDialog.close();
         setGoogleSession(result.token);
         toast(result.otherGuest?'Google 계정의 프로필을 열었어요. 이 기기의 게스트 기록은 따로 남아 있어요.':'Google 계정으로 로그인했어요.');
-      }catch(error){setText('account-feedback',error.message+' 로그인 창을 다시 열어 주세요.');}
+      }catch(error){showGoogleLoginError(error,verification);}
     }});
-    google.renderButton($('google-button'),{type:'standard',theme:'outline',size:'large',locale:'ko'});
+    button.hidden=false;
+    google.renderButton(button,{type:'standard',theme:'outline',size:'large',locale:'ko',width:String(button.clientWidth)});
     setText('account-feedback','');
-  }catch(error){if(attempt===loginAttempt)setText('account-feedback',error.message);}
+  }catch(error){
+    if(attempt===loginAttempt&&accountDialog.open)button.hidden=true;
+    showGoogleLoginError(error,attempt);
+  }
 }
 async function signOut(){
   try{
@@ -1389,7 +1405,7 @@ $('exit-market').onclick=()=>returnToEntrance();
 const dirMap={w:'w',a:'a',s:'s',d:'d',ArrowUp:'w',ArrowDown:'s',ArrowLeft:'a',ArrowRight:'d'};
 function direction(key){return dirMap[key]??dirMap[key.toLowerCase()];}
 document.addEventListener('keydown',e=>{
-  if(e.isComposing||!closingNotice.hidden)return;
+  if(e.isComposing||accountDialog.open||!closingNotice.hidden)return;
   if(!enteredMarket){
     if(e.key==='Escape'&&watchingMarket){e.preventDefault();closeSpectator();return;}
     if(e.key==='Escape'&&!$('lobby-chat').hidden&&!dialog.open){e.preventDefault();setLobbyChatOpen(false);}
@@ -1493,6 +1509,7 @@ function showMarket(session){
 $('enter-market').onclick=enterMarket;
 $('watch-market').onclick=()=>openSpectator();
 $('close-account').onclick=()=>accountDialog.close();
+$('account-retry').onclick=prepareGoogleLogin;
 $('account-watch').onclick=()=>{accountDialog.close();openSpectator();};
 $('watch-exit').onclick=closeSpectator;
 $('watch-enter').onclick=enterMarket;
