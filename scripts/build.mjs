@@ -11,7 +11,7 @@ if(api){
 await mkdir(dist,{recursive:true});
 const game=new URL('game/',root);
 const config='export const MARKET_API = '+JSON.stringify(api)+';\n';
-const entries=['app.mjs','catalog.mjs','world.mjs','style.css'];
+const entries=['app.mjs','catalog.mjs','world.mjs','style.css','market-ambience.wav'];
 const sources=await Promise.all(entries.map(file=>readFile(new URL(file,game))));
 const hash=createHash('sha256').update(config);
 for(const source of sources)hash.update(source);
@@ -21,11 +21,12 @@ await mkdir(assets,{recursive:true});
 await Promise.all([
   ...entries.map((file,i)=>writeFile(new URL(file,assets),sources[i])),
   writeFile(new URL('config.mjs',assets),config),
-  ...['mark.svg','vendor.svg','market-intro-warm.webp','market-intro-warm-portrait.webp','market-ambience.wav'].map(file=>cp(new URL(file,game),new URL(file,dist))),
+  ...['mark.svg','vendor.svg','market-intro-warm.webp','market-intro-warm-portrait.webp'].map(file=>cp(new URL(file,game),new URL(file,dist))),
 ]);
 const html=(await readFile(new URL('index.html',game),'utf8'))
   .replace('./app.mjs','./'+version+'/app.mjs')
-  .replace('./style.css','./'+version+'/style.css');
+  .replace('./style.css','./'+version+'/style.css')
+  .replace('./market-ambience.wav','./'+version+'/market-ambience.wav');
 await writeFile(new URL('index.html',dist),html);
 await writeFile(new URL('.nojekyll',dist),'');
 console.log('Built '+fileURLToPath(dist)+(api?' with shared online market':' with solo preview'));
