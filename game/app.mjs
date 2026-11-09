@@ -1,4 +1,4 @@
-import { AVATAR_OPTIONS, CHAT_FEED_MS, CHAT_LIMIT, CHAT_MS, DEFAULT_LOOK, EMPTY_STOCK, FEATURED_MARKETS, JUNK, LINES, LOBBY_CHAT_LIMIT, LOBBY_CHAT_MS, MARKET_CAPACITY, MARKET_EXIT_MS, MARKET_ITEMS, PAWN_LISTING_LIMIT, PAWN_MAX_PRICE, RARE_PICKUP_MS, RARE_SCARVES, ROUND_CURRENCY, SCARVES, SPAWN, WAITING_LINES, avatarOptionsFor, chatText, isNightMarket, lastMarketClose, marketName, marketRare, marketSession, niceName, normalizeLook, roundCloth, roundStock, seoulDay, seoulDayStart } from './catalog.mjs';
+import { AVATAR_OPTIONS, CHAT_FEED_MS, CHAT_LIMIT, CHAT_MS, DEFAULT_LOOK, EMPTY_STOCK, FEATURED_MARKETS, JUNK, LINES, LOBBY_CHAT_LIMIT, LOBBY_CHAT_MS, MARKET_CAPACITY, MARKET_EXIT_MS, MARKET_ITEMS, PAWN_LISTING_LIMIT, PAWN_MAX_PRICE, RARE_PICKUP_MS, RARE_SCARVES, ROUND_CURRENCY, SCARVES, SPAWN, WAITING_LINES, avatarOptionsFor, chatText, isNightMarket, lastMarketClose, marketName, marketPayment, marketRare, marketSession, niceName, normalizeLook, roundCloth, roundStock, seoulDay, seoulDayStart } from './catalog.mjs';
 import { MARKET_API } from './config.mjs';
 import { createWorld, drawAvatarPreview } from './world.mjs';
 
@@ -134,14 +134,17 @@ function demo(action='sync', extra={}) {
     if(!session.open)throw Error('개장하면 상품을 구매할 수 있어요.');
     if(!initial[item.id]&&item.id!==rare)throw Error('이 상품은 이번 장에서 판매하지 않아요.');
     if(!stock[item.id]) throw Error('이번 장에는 품절이에요. 다음 장을 기다려 주세요.');
-    if(p.cash<item.price) throw Error('지역화폐가 부족해요. 다음 장에 입장하면 '+format(ROUND_CURRENCY)+'원을 받아요.');
+    const payment=marketPayment(item.price,p.cash);
+    if(p.pawnCash<payment.cash)throw Error('지역화폐와 보유현금을 합쳐도 상품값이 부족해요.');
+    if(payment.cash>(extra.cashLimit??0))throw Error('결제 금액이 바뀌었어요. 잔액을 확인하고 다시 눌러 주세요.');
     stock[item.id]--;
     if(item.rare){
       data.rareSoldRound=session.round;
       rarePickup={id:p.id,item:item.id,sentAt:now,expiresAt:now+RARE_PICKUP_MS};
     }
     else data.stock[item.id]=stock[item.id];
-    p.cash-=item.price;
+    p.cash-=payment.regional;
+    p.pawnCash-=payment.cash;
     p.collected++;
     const existing=data.basket.find(i=>i.item===item.id);
     if(existing){existing.qty++;existing.updated=now;}else data.basket.push({item:item.id,qty:1,updated:now});
@@ -774,7 +777,7 @@ function renderShop(){
   const saleName=inventory?.testing?'테스트 장':inventory&&marketName(inventory.round*60_000);
   $('sale-label').textContent=saleName?saleName+' · 선착순 판매':'선착순 판매';
   if(!model||!inventory){body.innerHTML='<p class="empty">상품을 불러오고 있어요.</p>';return;}
-  const signature=[inventory.revision,model.player.cash,mode,acting,filter,soldoutPreview].join(':');
+  const signature=[inventory.revision,model.player.cash,model.player.pawnCash,mode,acting,filter,soldoutPreview].join(':');
   if(signature===shopSignature)return;
   shopSignature=signature;
   if(!inventory.open){
@@ -798,9 +801,18 @@ function renderShop(){
   const active=body.contains(document.activeElement)?document.activeElement.dataset:null;
   const canTrade=!acting&&['online','solo'].includes(mode);
   body.innerHTML=items.filter(item=>counts[item.id]>0).map(item=>{
-    const affordable=model.player.cash>=item.price;
-    const buy='<button class="primary" data-item="'+item.id+'" data-action="buy" aria-label="'+item.name+' 사기" '+(!canTrade||!affordable?'disabled':'')+'>'+format(item.price)+'원 '+(affordable?'사기':'예산 부족')+'</button>';
-    return itemRow(item,counts[item.id]+'장 남음 · '+item.detail,buy);
+    const payment=marketPayment(item.price,model.player.cash);
+    const affordable=(model.player.pawnCash??0)>=payment.cash;
+    const paymentLabel=[
+      payment.regional>0&&'지역화폐 '+format(payment.regional)+'원',
+      payment.cash>0&&'보유현금 '+format(payment.cash)+'원',
+    ].filter(Boolean).join(' + ');
+    const label=affordable?item.name+' 사기 · '+paymentLabel:item.name+' · 예산 부족';
+    const buy='<button class="primary" data-item="'+item.id+'" data-action="buy" data-cash-limit="'+payment.cash+
+      '" aria-label="'+label+'" '+(!canTrade||!affordable?'disabled':'')+'>'+format(item.price)+'원 '+(affordable?'사기':'예산 부족')+'</button>';
+    const detail=counts[item.id]+'장 남음 · '+item.detail;
+    const paymentNote=affordable?'<span class="shop-payment">'+paymentLabel+'</span>':'';
+    return itemRow(item,detail+paymentNote,buy);
   }).join('')||'<p class="empty">이 종류의 상품은 모두 나갔어요.</p>';
   if(active?.item)body.querySelector('[data-item="'+active.item+'"][data-action="'+active.action+'"]:not(:disabled)')?.focus({preventScroll:true});
 }
@@ -1433,7 +1445,7 @@ document.addEventListener('click', e=>{
     if(nearby||!$('world-error').hidden)openShop();
     else toast('스카프 아저씨 앞으로 다가가 보세요.');
   }
-  if(item)void act(item.dataset.action,{item:item.dataset.item});
+  if(item)void act(item.dataset.action,{item:item.dataset.item,cashLimit:Number(item.dataset.cashLimit??0)});
   if(category){
     filter=category.dataset.filter;
     $('shop-items').scrollTop=0;

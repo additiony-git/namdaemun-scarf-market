@@ -1,4 +1,8 @@
 export const ROUND_CURRENCY = 5000;
+export function marketPayment(price, regionalBalance) {
+  const regional = Math.min(price, regionalBalance);
+  return { regional, cash: price - regional };
+}
 export const PAWN_MAX_PRICE = 999_999_999;
 export const PAWN_LISTING_LIMIT = 20;
 export const MARKET_CAPACITY = 16;

@@ -1,4 +1,4 @@
-import { CHAT_FEED_MS, CHAT_LIMIT, CHAT_MS, EMPTY_STOCK, JUNK, LOBBY_CHAT_LIMIT, LOBBY_CHAT_MS, MAP, MARKET_CAPACITY, MARKET_EXIT_MS, MARKET_ITEMS, PAWN_LISTING_LIMIT, PAWN_MAX_PRICE, RARE_PICKUP_MS, RARE_SCARVES, ROUND_CURRENCY, SPAWN, chatText, fit, isNightMarket, lastMarketClose, marketRare, marketSession, niceName, normalizeLook, roundCloth, roundStock, seoulDay, seoulDayStart } from '../game/catalog.mjs';
+import { CHAT_FEED_MS, CHAT_LIMIT, CHAT_MS, EMPTY_STOCK, JUNK, LOBBY_CHAT_LIMIT, LOBBY_CHAT_MS, MAP, MARKET_CAPACITY, MARKET_EXIT_MS, MARKET_ITEMS, PAWN_LISTING_LIMIT, PAWN_MAX_PRICE, RARE_PICKUP_MS, RARE_SCARVES, ROUND_CURRENCY, SPAWN, chatText, fit, isNightMarket, lastMarketClose, marketPayment, marketRare, marketSession, niceName, normalizeLook, roundCloth, roundStock, seoulDay, seoulDayStart } from '../game/catalog.mjs';
 import { verifyGoogleCredential } from './google.mjs';
 
 const defaultName = '새내기 손님';
@@ -412,7 +412,9 @@ export class Market {
       }
       const room = admission ? 'lobby' : requestedRoom;
       let allowance = open ? this.get('SELECT balance FROM market_balances WHERE player = ? AND round = ?', player.id, round) : null;
-      if (!allowance && room === 'market' && open && !closing && connecting) allowance = this.issueRoundCurrency(player, round);
+      if (!allowance && room === 'market' && open && !closing && (connecting || action === 'buy')) {
+        allowance = this.issueRoundCurrency(player, round);
+      }
       let regionBalance = allowance?.balance ?? 0;
       const currencyGrant = allowance?.grant ?? null;
       const x = fit(pos?.x, MAP.minX, MAP.maxX, previous.x);
@@ -461,16 +463,24 @@ export class Market {
         if (!inventory.stock[item.id]) {
           return problem('다른 손님이 먼저 가져갔어요. 다음 장을 기다려 주세요.', 409);
         }
-        if (regionBalance < item.price) {
-          return problem(`지역화폐가 부족해요. 다음 장에 입장하면 ${ROUND_CURRENCY.toLocaleString('ko-KR')}원을 받아요.`, 409);
+        const payment = marketPayment(item.price, regionBalance);
+        if (payment.cash > 0) {
+          if (this.pawnWallet(player.id) < payment.cash) return problem('지역화폐와 보유현금을 합쳐도 상품값이 부족해요.', 409);
+          // An older screen or another device may have shown a smaller cash charge.
+          if (!Number.isSafeInteger(body.cashLimit) || body.cashLimit < payment.cash) {
+            return problem('결제 금액이 바뀌었어요. 잔액을 확인하고 다시 눌러 주세요.', 409);
+          }
+          this.creditPawn(player.id, -payment.cash, now);
         }
         if (item.rare) pickup = { item: item.id, sentAt: now, expiresAt: now + RARE_PICKUP_MS };
         this.query('INSERT INTO cloth_sales VALUES (?, ?, 1) ON CONFLICT(round,item) DO UPDATE SET qty = qty + 1', round, item.id);
         this.query('DELETE FROM cloth_sales WHERE round < ?', round - 3 * 24 * 60);
-        this.query('UPDATE market_balances SET balance = balance - ? WHERE player = ? AND round = ?', item.price, player.id, round);
+        if (payment.regional > 0) {
+          this.query('UPDATE market_balances SET balance = balance - ? WHERE player = ? AND round = ?', payment.regional, player.id, round);
+        }
         this.query('UPDATE players SET traded = ?, collected = collected + 1, reached = ? WHERE id = ?', now, now, player.id);
         this.query('INSERT INTO basket VALUES (?, ?, 1, ?) ON CONFLICT(player,item) DO UPDATE SET qty = qty + 1, updated = excluded.updated', player.id, item.id, now);
-        regionBalance -= item.price;
+        regionBalance -= payment.regional;
         player.collected++;
         player.reached = now;
         event = item.name + ' 장바구니에 담았어요!';

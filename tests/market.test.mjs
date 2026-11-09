@@ -87,6 +87,36 @@ test('entrants receive 5,000 regional currency per round and keep only that roun
   assert.equal(second.player.cash,5000);
 });
 
+test('stall checkout uses regional currency first, then only the displayed cash shortfall', t=>{
+  const data=setup();t.after(data.close);
+  const market=data.create();
+  const guest=market.action({action:'join'},start-1);
+  const buy=(item,at,cashLimit)=>market.action({action:'buy',token:guest.token,item,cashLimit},at);
+  const first=buy('amber-paisley',start+500,0);
+  assert.equal(first.currencyGrant,ROUND_CURRENCY);
+  assert.equal(first.player.cash,4100);
+  for(let i=1;i<5;i++)assert.ok(buy('amber-paisley',start+500+i*400,0).event);
+  for(let i=0;i<2;i++){
+    assert.ok(market.action({action:'pawn-sell',token:guest.token,item:'amber-paisley'},start+2300+i).event);
+  }
+
+  const stale=buy('scarf',start+2700,199);
+  assert.equal(stale.status,409);
+  assert.match(stale.error,/결제 금액이 바뀌었어요/);
+  const mixed=buy('scarf',start+2700,200);
+  assert.equal(mixed.player.cash,0);
+  assert.equal(mixed.player.pawnCash,700);
+  assert.equal(mixed.stock.scarf,firstStock.scarf-1);
+  const cashOnly=buy('hanky',start+3100,450);
+  assert.equal(cashOnly.player.cash,0);
+  assert.equal(cashOnly.player.pawnCash,250);
+  assert.equal(buy('scarf',start+3500,700).status,409);
+  const state=market.action({action:'sync',token:guest.token},start+3500);
+  assert.equal(state.stock.scarf,mixed.stock.scarf);
+  assert.equal(state.player.pawnCash,250);
+  assert.equal(state.player.collected,7);
+});
+
 test('returning from a test round keeps the regular round grant and respects older allowances', t=>{
   const data=setup();t.after(data.close);
   const from=start+5*60_000, until=from+2*60_000;
