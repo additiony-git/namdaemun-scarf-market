@@ -930,7 +930,7 @@ function pawnListingRows(pawn, canTrade){
 }
 function renderPawn(body){
   if(!$('pawn-content')){
-    body.innerHTML='<div class="pawn-wallet"><span>'+icon('wallet')+' 전당포 현금</span><strong id="pawn-modal-balance">–</strong></div>'+
+    body.innerHTML='<div class="pawn-wallet"><span>'+icon('wallet')+' 보유현금</span><strong id="pawn-modal-balance">–</strong></div>'+
       '<p class="modal-note pawn-note">일반템은 구매가의 절반에 매각할 수 있어요. 현금은 다음 장에도 남아요.</p>'+
       '<div class="profile-tabs" role="group" aria-label="전당포 메뉴">'+
       '<button type="button" data-pawn-tab="owned">내 물건</button><button type="button" data-pawn-tab="listings">레어 장터</button>'+
@@ -954,7 +954,7 @@ function renderPawn(body){
     const note=pawn?'<p class="modal-note">레어템은 구매가 이상에 등록할 수 있어요. 판매 중인 물건은 내 판매에서 취소할 수 있어요.</p>':'';
     content.innerHTML=note+pawnOwnedRows(pawn,canTrade?'':' disabled');
   }else if(pawn){
-    const note=pawnTab==='mine'?'판매가 끝나면 현금이 바로 들어와요. 동시에 '+PAWN_LISTING_LIMIT+'개까지 등록할 수 있어요.':'다른 손님이 올린 레어템을 전당포 현금으로 구매해요.';
+    const note=pawnTab==='mine'?'판매가 끝나면 현금이 바로 들어와요. 동시에 '+PAWN_LISTING_LIMIT+'개까지 등록할 수 있어요.':'다른 손님이 올린 레어템을 보유현금으로 구매해요.';
     content.innerHTML='<p class="modal-note">'+note+'</p>'+pawnListingRows(pawn,canTrade);
   }else{
     content.innerHTML='<p class="empty">'+(endpoint?'레어 장터를 불러오고 있어요.':'레어 거래는 온라인 장터에서 할 수 있어요.')+'</p>';
@@ -963,7 +963,7 @@ function renderPawn(body){
 const rankCategories={
   all:{unit:'개',note:'매대에서 구매한 누적 수량으로 단골 순위를 매겨요.',empty:'아직 매대 구매 기록이 없어요.'},
   rare:{unit:'개',note:'보유한 레어템 수량으로 순위를 매겨요. 등록 중인 레어템은 팔릴 때까지 판매자 보유로 집계해요.',empty:'아직 레어템을 보유한 손님이 없어요.'},
-  cash:{unit:'원',note:'현재 보유한 전당포 현금으로 순위를 매겨요.',empty:'아직 전당포 현금을 보유한 손님이 없어요.'},
+  cash:{unit:'원',note:'보유현금이 많은 손님이 앞서요.',empty:'아직 보유현금이 있는 손님이 없어요.'},
 };
 function renderModal(){
   const body=$('modal-body');

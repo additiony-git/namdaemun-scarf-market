@@ -256,7 +256,7 @@ export class Market {
       return { event: item.name + ' 판매를 취소했어요.' };
     }
     if (listing.seller === player) return problem('내가 올린 물건은 구매할 수 없어요.', 409);
-    if (this.pawnWallet(player) < listing.price) return problem('전당포 현금이 부족해요.', 409);
+    if (this.pawnWallet(player) < listing.price) return problem('보유현금이 부족해요.', 409);
     this.query('DELETE FROM pawn_listings WHERE id = ?', listing.id);
     this.creditPawn(player, -listing.price, now);
     this.creditPawn(listing.seller, listing.price, now);
